@@ -1,9 +1,5 @@
 # faust-actions — plan
 
-This repository was first named `faustosxservice`; it was renamed when
-the action became usable by other repositories and, later, for other
-systems than macOS.
-
 Compile Faust programs into binaries with GitHub Actions: a composite
 action (§11) takes a `.dsp` file and a target, runs the matching
 `faust2xxx` script and returns the result as a zip. macOS results are
@@ -73,7 +69,7 @@ faust-actions/
 │   ├── lib.sh                 # shared: sources, options, logs, checks, zip
 │   ├── build-<target>.sh      # runs faust2xxx, checks and packages the result
 │   ├── setup/*.sh             # installs Faust (faust-windows.sh on Windows), Qt, JUCE, SDK headers
-│   └── faustosx               # client: send a .dsp, wait, download (to do)
+│   └── faust-build            # client: send a .dsp, wait, download (to do)
 ├── tests/
 │   ├── osc.dsp                # smoke-test program
 │   └── withlib/               # program importing a local .lib
@@ -169,7 +165,7 @@ faustservice host. No size limit then, beyond faustservice's own 500 KB.
        NAME: ${{ inputs.name }}
        OPTIONS: ${{ inputs.options }}
        ARCH: ${{ inputs.arch }}
-       FAUSTOSX_FROM_EVENT: "1"
+       FAUST_FROM_EVENT: "1"
        MAXSDK: ${{ runner.temp }}/max-sdk-base/c74support
      run: scripts/build-max.sh
    ```
@@ -203,7 +199,7 @@ faustservice host. No size limit then, beyond faustservice's own 500 KB.
 
 ## 5. Client script
 
-`scripts/faustosx foo.dsp [options]` wraps the GitHub CLI:
+`scripts/faust-build foo.dsp [options]` wraps the GitHub CLI:
 
 ```bash
 gh workflow run max.yml -R grame-cncm/faustservice-builds -f name=foo -f dsp="$(cat foo.dsp)"
@@ -332,7 +328,7 @@ In the faustservice Dockerfile:
   read and cancel runs, download artifacts). It can do nothing else.
 - Given to the container at run time, never written into the image or a
   repository: `docker run --env-file /etc/faustservice/github.env ...`,
-  with `FAUSTOSX_TOKEN=...` in that file (mode 600). `faustweb` runs
+  with `FAUSTSERVICE_TOKEN=...` in that file (mode 600). `faustweb` runs
   `make` with `system()`, so the variable reaches `githubOSX`.
 - Fine-grained tokens expire. Note the expiry date and renew it, or use a
   GitHub App installation token, which does not expire but needs an app
@@ -423,10 +419,10 @@ artifacts, which hold the sources next to the binary.
   artifact. Use a neutral `name` (for instance the session key) and set
   the program name back when unpacking, to hide even the name.
 - **Encryption, to remove the window** (not implemented):
-  - a repository secret `FAUSTOSX_KEY` (random, 32 bytes, base64), also
+  - a repository secret `FAUSTSERVICE_KEY` (random, 32 bytes, base64), also
     given to faustservice next to the GitHub token;
   - `githubOSX` encrypts the archive before sending it:
-    `openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:FAUSTOSX_KEY | base64`,
+    `openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:FAUSTSERVICE_KEY | base64`,
     in a new `encrypted` input; `lib.sh` decrypts it before
     `unpack_archive`, with the secret passed as an environment variable
     (GitHub masks secrets in logs);
@@ -630,7 +626,7 @@ version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
   on `QtWidgets.framework`. The zip itself is correct: downloaded with
   `GET .../actions/artifacts/<id>/zip` (what `githubOSX` does) and
   unpacked with `ditto -x -k`, the signature is valid. Max externals hold
-  no symlinks and are not affected. The `faustosx` client must download
+  no symlinks and are not affected. The `faust-build` client must download
   the raw zip for applications.
 
 ## 10. The other macOS targets of faustservice
@@ -830,7 +826,7 @@ GitHub's terms allow (§8, "Terms of use").
   `grame-cncm/faustservice-builds` (§7) call the action with
   `dsp-from-event: "true"`: `lib.sh` then reads the `dsp` and
   `archive` inputs from the `workflow_dispatch` payload
-  (`FAUSTOSX_FROM_EVENT=1`), never from the environment, so that the log
+  (`FAUST_FROM_EVENT=1`), never from the environment, so that the log
   does not show them (§7, "Privacy"). The event is only read when asked:
   in another repository, the payload is the caller's own event.
 - **No nested local actions.** A composite action cannot call a
@@ -846,7 +842,10 @@ GitHub's terms allow (§8, "Terms of use").
   on it (§10, "For every new target"); Linux x86_64 or arm64 and Windows
   x64 for the targets of §12 (`max` builds on macOS and Windows).
 - **Paths.** Each build goes to `$RUNNER_TEMP/faustosx/<target>-<name>`,
-  so a job can build several targets. The Faust cache key holds the
+  so a job can build several targets. Callers may spell this path out
+  to upload `build.log` when the build fails (the outputs of the action
+  are not set then), as the workflows of `faustservice-builds` do: it
+  only changes with a new major version. The Faust cache key holds the
   system and the architecture (`faust-<os>-<arch>-<commit>`, since §12),
   so the caches of the former macOS workflows are not reused.
 - **Tests.** `test-action.yml` (started by hand) runs the action on
@@ -931,27 +930,27 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
 - **`max` on Windows** (`v1.2.0`). `faust2w64max6` was
   written to cross-compile on Linux or macOS with MinGW-w64; the
   runner's own MinGW-w64 (`C:\mingw64`, g++ 15.2) runs it natively.
-  `build-max.sh` runs a copy of the script with fixes, and fills what
-  the runner lacks, each only when needed:
-  - `MAXSDK`: the script sets it to `/usr/local/include/c74support`
-    whatever the environment says; the copy keeps the value of
-    `faustpath`, as `faust2max6` does;
-  - `TMP`: the script names its working directory `TMP`, a relative
+  Four things stopped it there, fixed in Faust (commit `21a913abf`,
+  `master-dev`, 2026-11-04), after `v1.2.0` had first worked around
+  them in `build-max.sh`:
+  - `MAXSDK`: the script set it to `/usr/local/include/c74support`
+    whatever the environment said; it now comes from `faustpath`, as in
+    `faust2max6`;
+  - `TMP`: the script named its working directory `TMP`, a relative
     path, while the Windows compiler creates its temporary files in
-    `$TMP`: after its `cd`, g++ fails with "Cannot create temporary
-    file". The copy renames the variable;
+    `$TMP`: after its `cd`, g++ failed with "Cannot create temporary
+    file". The directory is now `BUILDDIR`;
   - `dllwrap`, with which the script links the DLL, is not in the
-    runner's MinGW (deprecated, missing from recent distributions): a
-    stand-in on the `PATH` links with `g++ -shared`, the `.def` file
-    giving the exported `main`;
+    runner's MinGW (deprecated, missing from recent distributions): the
+    script now links with `g++ -shared` and the `.def` file when
+    `dllwrap` is missing;
   - the OSC headers: `faust -i` inlines every header the architecture
     names, `OSCUI.h` and the `faust/osc` headers included, which
-    Faust's CMake installs with the OSC library only, left out of the
-    Windows build: they are fetched from `raw.githubusercontent.com` at
-    the commit Faust was built from.
-  The three script fixes and the header install belong in Faust
-  (`faust2w64max6`, `faust2w32max6`, `build/CMakeLists.txt`, which
-  already installs `HTTPDControler.h` for the same reason). Options:
+    Faust's CMake installed with the OSC library only, left out of the
+    Windows build. `build/CMakeLists.txt` now installs them always, as
+    it did for `HTTPDControler.h`.
+  `build-max.sh` now only checks that the Faust in use has these fixes
+  (an older `faust-ref` stops with a message). Options:
   `-mc`, `-nopost` and the Faust options; the script knows no `-midi`,
   `-nvoices`, `-soundfile` or `-nopatch` and passes them to `faust`, so
   they are refused. The external is compiled in double, exports `main`
@@ -961,8 +960,9 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
   is not stripped (5.9 MB for `withlib`): the script leaves `strip` out,
   after a Cycling '74 forum thread on "Error 998" when loading externals
   built this way. Tested on GitHub (run
-  `41918241164`, all 17 jobs pass); not tested: loading it in Max on
-  Windows.
+  `41918241164` with the workarounds, run `41923057872` with Faust
+  `21a913abf` and without them; all 17 jobs pass); not tested: loading
+  it in Max on Windows.
 - **Tests.** `test-action.yml` now runs 15 target and runner pairs plus
   the standalone setup actions: all pass (run `41848501917`), each result
   with the expected architecture (`x86_64`, or `arm64` on the arm runner)
@@ -985,7 +985,7 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
 3. Done for Faust: cache saved right after the build, run time about 25 s
    with a warm cache. The Max SDK clone takes about 1 s and needs no cache.
 4. Done: option validation and error log artifact. To do: the
-   `scripts/faustosx` client.
+   `scripts/faust-build` client.
 5. faustservice integration (§7).
 6. Signing and notarization, if the binaries are to be distributed.
 7. `faust2caqt` (§9): done, universal applications built on GitHub with

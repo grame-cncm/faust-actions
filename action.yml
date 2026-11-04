@@ -323,7 +323,7 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         DSP_FILE: ${{ inputs.dsp }}
-        FAUSTOSX_FROM_EVENT: ${{ inputs.dsp-from-event == 'true' && '1' || '' }}
+        FAUST_FROM_EVENT: ${{ inputs.dsp-from-event == 'true' && '1' || '' }}
         NAME: ${{ steps.paths.outputs.name }}
         OPTIONS: ${{ inputs.options }}
         ARCH: ${{ steps.paths.outputs.arch }}

@@ -25,8 +25,7 @@ file of the repository, or on a source received as text by a workflow
 started by a service (faustservice's compilations run that way, in a
 separate private repository). See [PLAN.md](PLAN.md) for the
 design, the measurements and the next steps. MIT license, see
-[LICENSE](LICENSE). This repository was first named `faustosxservice`;
-GitHub redirects the old address.
+[LICENSE](LICENSE).
 
 ## Use the action in your repository
 

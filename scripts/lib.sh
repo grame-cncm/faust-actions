@@ -7,7 +7,7 @@
 #   DSP      Faust source code (text)
 #   ARCHIVE  base64 of a tar.gz holding $NAME.dsp and the files it imports
 #            (.lib, other .dsp, soundfiles), without directories
-#   With FAUSTOSX_FROM_EVENT=1, DSP and ARCHIVE are the dsp and archive
+#   With FAUST_FROM_EVENT=1, DSP and ARCHIVE are the dsp and archive
 #   inputs of the workflow_dispatch event in $GITHUB_EVENT_PATH instead of
 #   environment variables (see below).
 # then:
@@ -64,7 +64,7 @@ require_os() {
 # The Actions log prints the environment of each step in its header, which
 # would publish the user's source on a public repository. The workflows of
 # this repository therefore do not pass dsp and archive in the environment:
-# with FAUSTOSX_FROM_EVENT=1 they are read from the event payload, which
+# with FAUST_FROM_EVENT=1 they are read from the event payload, which
 # the log does not show.
 event_input() {
     if command -v jq > /dev/null; then
@@ -75,10 +75,10 @@ event_input() {
             "$GITHUB_EVENT_PATH" "$1"
     fi
 }
-if [ "${FAUSTOSX_FROM_EVENT:-}" = 1 ]; then
+if [ "${FAUST_FROM_EVENT:-}" = 1 ]; then
     [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "$GITHUB_EVENT_PATH" ] \
-        || fail "FAUSTOSX_FROM_EVENT=1 needs the event payload in GITHUB_EVENT_PATH"
-    [ -z "$DSP$ARCHIVE$DSP_FILE" ] || fail "FAUSTOSX_FROM_EVENT=1 takes the sources from the event only"
+        || fail "FAUST_FROM_EVENT=1 needs the event payload in GITHUB_EVENT_PATH"
+    [ -z "$DSP$ARCHIVE$DSP_FILE" ] || fail "FAUST_FROM_EVENT=1 takes the sources from the event only"
     DSP=$(event_input dsp) || fail "cannot read the dsp input from $GITHUB_EVENT_PATH"
     ARCHIVE=$(event_input archive) || fail "cannot read the archive input from $GITHUB_EVENT_PATH"
 fi
