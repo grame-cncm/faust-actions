@@ -540,7 +540,110 @@ version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
   no symlinks and are not affected. The `faustosx` client must download
   the raw zip for applications.
 
-## 10. Milestones
+## 10. The other macOS targets of faustservice
+
+Inventory of faustservice (branch `server`, `makefiles/dockerosx`, which
+the Dockerfile installs as `makefiles/osx`; checked 2026-11-04), with
+what each one needs to move here.
+
+### Already covered
+
+| faustservice target | command | here |
+| :--- | :--- | :--- |
+| `max`, `max-mc`, `max-poly`, `max-poly-mc` | `faust2max6`, `-mc`, `-midi -nvoices 16` | `max.yml` |
+| `coreaudio-qt`, `coreaudio-qt-midi` | `faust2caqt`, `-midi` | `caqt.yml` |
+
+### Easy: only public headers to fetch
+
+| target | script | needed on the runner | Intel + Apple Silicon |
+| :--- | :--- | :--- | :--- |
+| `puredata`, `puredata-poly` | `faust2puredata` (`-poly`) | `m_pd.h` from the Pure Data repository (`PUREDATA_MACSDK`); the external is linked with `-undefined suppress` | already: on an arm machine, so on `macos-15`, it builds both slices and merges them with `lipo` |
+| `supercollider` | `faust2supercollider -noprefix` | the `plugin_interface`, `common` and `server` headers of the SuperCollider repository (`SUPERCOLLIDER_HEADERS`) | already on arm; `-universal` also exists |
+| `csound` | `faust2csound` | the Csound headers (`CSOUND_MACSDK/Headers`); no library is linked (`-dynamiclib`) | no option: to check whether `CXXFLAGS="-arch x86_64 -arch arm64"` (appended to by the script) is enough, otherwise add `-arch` |
+| `plot` | `faust2plot` | nothing (a command-line tool) | same as `csound`, through `CXXFLAGS`, to check |
+
+faustservice splits two of them between Linux and the Mac today, and
+`githubOSX` replaces only the Mac part, as `dockerOSX` does:
+
+- `puredata`: `faust2puredata` runs on Linux first, where `faust2pd`
+  writes the `.pd` patches (`faust2pd` is not installed on the runner),
+  then on the Mac for the `.pd_darwin`;
+- `supercollider`: the Mac builds the `.scx`, Linux writes the `.sc`
+  class file (`-sn`).
+
+### More work
+
+- **`jack-qt` (`faust2jaqt`).** Qt is in place, but a universal
+  `libjack` is needed on the runner (for instance from the JackOSX
+  installer; Homebrew's JACK is arm64 only), and users must have JACK
+  installed. `faust2jaqt` has no `-arch`: add it as in `faust2caqt`.
+- **Unity `osx`, `ios`, `all` (`faust2unity`).** These makefiles still
+  call `remoteOSX`, the SSH helper of the former Mac, while the
+  Dockerfile installs only `dockerOSX`; its
+  `rm -rf makefiles/unity/all makefiles/unity/osx` names paths that do
+  not exist (the files are `Makefile.all` and `Makefile.osx`) and
+  removes nothing. These three targets are therefore probably broken in
+  production (not checked on the server). On macOS,
+  `faust2osxiosunity -universal` exists; for iOS it compiles for
+  `armv7 armv7s arm64`, and current Xcode versions no longer build
+  `armv7`: that part needs fixing first.
+
+### Blocked
+
+- **`vst`, `vsti` (`faust2faustvst`).** It needs the VST2 SDK, which
+  Steinberg no longer distributes and whose license forbids
+  redistribution: it cannot be fetched by a workflow of a public
+  repository. Options: keep these targets on `dockerOSX` (whose image
+  presumably holds the SDK), drop them, or offer VST3 or AU plugins
+  instead, for instance with `faust2juce`.
+
+### Not concerned
+
+`ios` (`faust2ios -xcodeproj`) and `vcvrack` (`faust2vcvrack -source`)
+produce source projects on Linux, without a macOS binary.
+
+### New: JUCE plugins (`faust2juce`)
+
+faustservice's `juce` targets (`plug-in`, `application`, with `-midi`,
+`-nvoices 16`, `-osc`) only return the project `faust2juce` writes, to
+build with Projucer. This repository can return the built plugins:
+
+- for plugins (without `-standalone` or `-llvm`), `faust2juce` also
+  writes a `CMakeLists.txt` that builds them without Projucer, against a
+  JUCE checkout (`-DJUCE_DIR`) or a JUCE it downloads (8.0.10 by
+  default);
+- `-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` makes them universal;
+- the formats are those of `faust2juce`: AU, VST3 and Standalone (JUCE
+  builds AUv3 only with the Xcode generator). VST3 is also the way out
+  for faustservice's `vst` / `vsti` targets, blocked by the VST2 SDK;
+- `-standalone` produces a `.jucer` project only, which needs Projucer:
+  refused at first, the Standalone format of the plugin build gives an
+  application anyway.
+
+### For every new target
+
+- An options allow-list per script, as for Max and caqt: refuse the
+  options that link libraries built for arm64 only and those taking a
+  path.
+- Stay on an arm64 runner (`macos-15`): on an Intel Mac, `faustoptflags`
+  adds `-march=native`, which would tune the code for the runner's CPU.
+- One workflow per script, `build-<target>.sh` on top of `lib.sh`, the
+  SDK headers fetched at a pinned commit and cached when they are large.
+
+### Order
+
+1. `puredata`, `supercollider`: the scripts already build both
+   architectures, only the headers are missing.
+2. `csound`, `plot`.
+3. `jack-qt`, after adding `-arch` to `faust2jaqt`.
+4. Unity, together with the fix of its iOS part.
+5. The decision on `vst` / `vsti` (VST3 through `faust2juce` is the
+   candidate replacement).
+
+JUCE plugins come first, before this order: they need no SDK beyond
+JUCE itself and cover AU, VST3 and Standalone at once.
+
+## 11. Milestones
 
 1. Done: repository, `max.yml` with Faust built from `master-dev`, manual
    `workflow_dispatch` on `tests/osc.dsp`; `lipo -archs` lists
@@ -556,4 +659,4 @@ version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
    Qt 6.8.3. `-arch` added to `faust2caqt` in Faust, to commit to
    `master-dev`; `build-caqt.sh` uses it once there. To do: run the
    applications on an Apple Silicon and an Intel Mac, test `-effect auto`.
-8. Further targets (`faust2au`, `faust2vst`, `faust2juce`…).
+8. The other macOS targets of faustservice, in the order of §10.
