@@ -48,9 +48,9 @@ the version.
 
 ```
 faustosxservice/
-├── .github/workflows/
-│   ├── setup-faust.yml        # reusable: build or restore Faust + Max SDK
-│   └── max.yml                # faust2max6 job
+├── .github/
+│   ├── actions/setup-faust/   # composite action: build or restore Faust
+│   └── workflows/max.yml      # faust2max6 job
 ├── scripts/
 │   ├── build-max.sh           # runs faust2max6, packages the result
 │   └── faustosx               # client: send a .dsp, wait, download
@@ -107,15 +107,19 @@ a single `.dsp`, not for local `import`s or soundfiles (see §6).
    faust2max6 -arch "$ARCH" $OPTIONS "$NAME.dsp"
    lipo -info "$NAME~.mxo/Contents/MacOS/$NAME~"   # must list x86_64 arm64
    codesign --verify --verbose "$NAME~.mxo"
-   ditto -c -k --keepParent . "../$NAME-max.zip"
+   ditto -c -k --norsrc --noextattr --keepParent . "../$NAME-max.zip"
    ```
+
+   (`--noextattr`: otherwise the zip carries `._*` entries for the files'
+   extended attributes.)
 
    `faust2max6` produces `foo~.mxo`, plus `foo.maxpat` and `ui.js`
    unless `-nopatch` is given. The three go into the zip. `ditto` keeps
    the bundle structure and the signature intact.
 
-7. `actions/upload-artifact@v4` with the zip (name `max-$name`),
-   `retention-days: 7`.
+7. `actions/upload-artifact` with the zip, `archive: false` (the zip is
+   uploaded as is, under its own name `$name-max.zip`, instead of being
+   zipped a second time), `retention-days: 7`.
 8. On failure, upload the Faust/C++ error log as well, so the user sees the
    compiler message.
 
@@ -161,9 +165,11 @@ quarantine attribute from the downloaded `.mxo` (§7).
   `codesign --options runtime --timestamp`, then `xcrun notarytool submit
   --wait`. A `.mxo` bundle cannot be stapled on its own; notarize the zip
   or wrap it in a `.dmg` / `.pkg`.
-- **`-osc`.** It links `-lOSCFaust`; check that `make install` of Faust
-  installs that library, and that it is universal, before allowing the
-  option.
+- **`-osc`.** It links `-lOSCFaust`. `make install` does install
+  `libOSCFaust.a`, but built for the runner's architecture only (arm64),
+  so a universal link fails. Refused until the Faust build produces it
+  universal (`make universal` in the Faust tree) or the workflow builds it
+  separately for x86_64.
 - **`-soundfile`.** Uses the static `libsndfile.a` shipped for `arm` and
   `intel` in `architecture/max-msp/sndfile`: should work on the runner,
   to verify. `-soundfile-dynamic` links the runner's Homebrew libsndfile,

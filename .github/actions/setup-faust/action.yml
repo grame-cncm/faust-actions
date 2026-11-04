@@ -1,0 +1,67 @@
+name: Set up Faust
+description: >
+  Build the Faust compiler from a branch of grame-cncm/faust, or restore it
+  from the cache when that branch has not moved, and put it on the PATH.
+
+inputs:
+  ref:
+    description: Branch of grame-cncm/faust to build
+    default: master-dev
+
+outputs:
+  commit:
+    description: Faust commit that was built or restored
+    value: ${{ steps.rev.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the Faust commit
+      id: rev
+      shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+        sha=$(git ls-remote https://github.com/grame-cncm/faust "refs/heads/$REF" | cut -f1)
+        if [ -z "$sha" ]; then
+          echo "::error::branch '$REF' not found in grame-cncm/faust"
+          exit 1
+        fi
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "prefix=$RUNNER_TEMP/faust-install" >> "$GITHUB_OUTPUT"
+
+    # The prefix is under RUNNER_TEMP, whose path is the same on every run of
+    # a given runner image, so the restored tree finds its own files again.
+    - name: Restore Faust
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.rev.outputs.prefix }}
+        key: faust-${{ runner.os }}-${{ runner.arch }}-${{ steps.rev.outputs.sha }}
+
+    - name: Build Faust
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        SHA: ${{ steps.rev.outputs.sha }}
+        PREFIX: ${{ steps.rev.outputs.prefix }}
+      run: |
+        set -euo pipefail
+        src="$RUNNER_TEMP/faust-src"
+        git init -q "$src"
+        cd "$src"
+        git remote add origin https://github.com/grame-cncm/faust
+        git fetch -q --depth 1 origin "$SHA"
+        git checkout -q FETCH_HEAD
+        git submodule update -q --init --recursive --depth 1
+        make
+        make install PREFIX="$PREFIX"
+
+    - name: Add Faust to the PATH
+      shell: bash
+      env:
+        PREFIX: ${{ steps.rev.outputs.prefix }}
+      run: |
+        echo "$PREFIX/bin" >> "$GITHUB_PATH"
+        "$PREFIX/bin/faust" --version | head -n 2

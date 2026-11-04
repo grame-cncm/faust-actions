@@ -1,0 +1,75 @@
+name: Max external
+
+# One run compiles one Faust program with faust2max6 and returns the
+# external, its help patch and ui.js as a zip artifact named <name>-max.zip.
+run-name: max ${{ inputs.name }} ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dsp:
+        description: Faust source code
+        required: true
+        type: string
+      name:
+        description: Program name, without .dsp
+        default: foo
+        type: string
+      options:
+        description: Extra faust2max6 options (for instance "-mc -nvoices 8")
+        default: ""
+        type: string
+      arch:
+        description: Architecture of the external
+        default: universal
+        type: choice
+        options: [universal, arm64, x86_64]
+      tag:
+        description: Free text added to the run name, so a client can find its run
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  max:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Faust
+        uses: ./.github/actions/setup-faust
+
+      - name: Get the Max SDK
+        run: git clone -q --depth 1 --recursive --shallow-submodules https://github.com/Cycling74/max-sdk "$RUNNER_TEMP/max-sdk"
+
+      # Inputs reach the script through the environment only: expanding them
+      # inside the script text would let the Faust source run shell commands.
+      - name: Compile
+        env:
+          DSP: ${{ inputs.dsp }}
+          NAME: ${{ inputs.name }}
+          OPTIONS: ${{ inputs.options }}
+          ARCH: ${{ inputs.arch }}
+          MAXSDK: ${{ runner.temp }}/max-sdk/source/max-sdk-base/c74support
+          OUT: ${{ runner.temp }}/out
+        run: scripts/build-max.sh
+
+      - name: Upload the external
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/out/${{ inputs.name }}-max.zip
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.name }}-log
+          path: ${{ runner.temp }}/out/build.log
+          retention-days: 7
+          if-no-files-found: ignore
