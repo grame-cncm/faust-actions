@@ -861,7 +861,8 @@ GitHub's terms allow (§8, "Terms of use").
   repository's cache (about 2 minutes of the run) and returns a universal
   Max external; the log holds no line of the source.
 - **Versions.** Annotated tags, never moved: `v1.0.0` (2026-11-04,
-  macOS), `v1.1.0` (2026-11-04, Linux and Windows added, `arch: auto`);
+  macOS), `v1.1.0` (2026-11-04, Linux and Windows added, `arch: auto`),
+  `v1.2.0` (2026-11-04, `max` on Windows);
   and
   `v1`, moved to each compatible `v1.x.y` (`git tag -fa v1 <commit>`,
   `git push -f origin v1`). An incompatible change of the inputs or
@@ -927,7 +928,7 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
   (same output) is put on the `PATH`. Ninja would need the Visual Studio
   environment (`vcvarsall.bat`) loaded first, and MinGW or clang are only
   partly supported by JUCE: MSVC is kept.
-- **`max` on Windows** (added after `v1.1.0`). `faust2w64max6` was
+- **`max` on Windows** (`v1.2.0`). `faust2w64max6` was
   written to cross-compile on Linux or macOS with MinGW-w64; the
   runner's own MinGW-w64 (`C:\mingw64`, g++ 15.2) runs it natively.
   `build-max.sh` runs a copy of the script with fixes, and fills what
@@ -1000,4 +1001,5 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
 10. Linux and Windows targets (§12): done for `lv2`, `juce`, `puredata`,
     `supercollider`, `csound` on Linux and `juce` on Windows; tagged
     `v1.1.0`, `v1` moved to it. faustservice-builds stays on `v1.0.0`
-    (its targets are macOS ones, unchanged). Then `max` on Windows.
+    (its targets are macOS ones, unchanged). Then `max` on Windows, tagged
+    `v1.2.0`, `v1` moved to it.

@@ -48,7 +48,7 @@ jobs:
           archive: false         # keeps the zip as it is (see "Download" below)
 ```
 
-`@v1` follows the compatible 1.x.y releases; pin `@v1.1.0`, or a commit
+`@v1` follows the compatible 1.x.y releases; pin `@v1.2.0`, or a commit
 (`@<sha>`), to keep exactly the same version.
 
 | input | meaning | default |
