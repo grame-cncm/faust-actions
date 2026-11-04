@@ -93,16 +93,19 @@ fi
     || fail "MAXSDK=$MAXSDK lacks max-includes/x64/MaxAPI.lib or msp-includes/x64/MaxAudio.lib"
 export MAXSDK
 
-# Older faust2w64max6 set MAXSDK to /usr/local/include/c74support whatever
-# the environment says: run a copy that keeps the value of faustpath
-# (MAXSDK when set) instead.
+# Run a copy of faust2w64max6 with two fixes, each applied only when the
+# script still needs it:
+# - older versions set MAXSDK to /usr/local/include/c74support whatever the
+#   environment says: keep the value of faustpath (MAXSDK when set);
+# - it names its working directory TMP, a relative path, while TMP is also
+#   the variable in which the Windows compiler creates its temporary files:
+#   after its cd, g++ fails with "Cannot create temporary file". Rename it.
 script=$(command -v faust2w64max6) || fail "faust2w64max6 not found"
-if grep -q '^MAXSDK=/usr/local/include/c74support' "$script"; then
-    sed 's|^MAXSDK=/usr/local/include/c74support.*|[ -n "$MAXSDK" ] \|\| MAXSDK=/usr/local/include/c74support|' \
-        "$script" > "$OUT/.bin/faust2w64max6"
-    chmod +x "$OUT/.bin/faust2w64max6"
-    script="$OUT/.bin/faust2w64max6"
-fi
+sed -e 's|^MAXSDK=/usr/local/include/c74support.*|[ -n "$MAXSDK" ] \|\| MAXSDK=/usr/local/include/c74support|' \
+    -e 's/\([^A-Za-z_]\)TMP=/\1FAUST_TMP=/' -e 's/\$TMP/$FAUST_TMP/g' \
+    "$script" > "$OUT/.bin/faust2w64max6"
+chmod +x "$OUT/.bin/faust2w64max6"
+script="$OUT/.bin/faust2w64max6"
 
 # faust2w64max6 runs faust -i, which inlines every header the architecture
 # names, those of OSCUI.h included. Faust's CMake installs them with the
