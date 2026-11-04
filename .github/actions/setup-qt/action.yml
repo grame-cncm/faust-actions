@@ -36,20 +36,15 @@ runs:
         path: ${{ steps.paths.outputs.root }}
         key: qt-${{ runner.os }}-${{ inputs.version }}-aqt3.3.0
 
-    # Qt's online packages for macOS ("clang_64") are universal binaries.
-    # aqtinstall goes into its own virtual environment: the runner's Python
-    # refuses system-wide pip installs (PEP 668).
+    # Qt's online packages for macOS ("clang_64") are universal binaries
+    # (see scripts/setup/qt.sh).
     - name: Install Qt
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         QT_VERSION: ${{ inputs.version }}
         ROOT: ${{ steps.paths.outputs.root }}
-      run: |
-        set -euo pipefail
-        python3 -m venv "$RUNNER_TEMP/aqt-venv"
-        "$RUNNER_TEMP/aqt-venv/bin/pip" install -q aqtinstall==3.3.0
-        "$RUNNER_TEMP/aqt-venv/bin/aqt" install-qt mac desktop "$QT_VERSION" clang_64 --outputdir "$ROOT"
+      run: '"$GITHUB_ACTION_PATH/../../../scripts/setup/qt.sh"'
 
     - name: Save Qt
       if: steps.cache.outputs.cache-hit != 'true'

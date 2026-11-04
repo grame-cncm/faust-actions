@@ -49,17 +49,7 @@ runs:
       env:
         SHA: ${{ steps.rev.outputs.sha }}
         PREFIX: ${{ steps.rev.outputs.prefix }}
-      run: |
-        set -euo pipefail
-        src="$RUNNER_TEMP/faust-src"
-        git init -q "$src"
-        cd "$src"
-        git remote add origin https://github.com/grame-cncm/faust
-        git fetch -q --depth 1 origin "$SHA"
-        git checkout -q FETCH_HEAD
-        git submodule update -q --init --recursive --depth 1
-        make
-        make install PREFIX="$PREFIX"
+      run: '"$GITHUB_ACTION_PATH/../../../scripts/setup/faust.sh"'
 
     - name: Save Faust
       if: steps.cache.outputs.cache-hit != 'true'

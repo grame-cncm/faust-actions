@@ -1,8 +1,9 @@
 name: JACK + Qt application (Apple Silicon)
 
-# One run compiles one Faust program with faust2jaqt and returns the
-# application, Qt included and libjack not, as a zip artifact named
-# <name>-jaqt.zip. Arm64 only: Homebrew's libjack is arm64 only.
+# Compiles one Faust program with the action of this repository
+# (action.yml, target jaqt) and returns the application, Qt included and libjack not as a zip artifact named
+# <name>-jaqt.zip, plus the build log as <name>-log. The source comes
+# from the dsp or archive input, which the log does not show.
 run-name: jaqt ${{ inputs.name }} ${{ inputs.tag }}
 
 on:
@@ -21,11 +22,11 @@ on:
         default: foo
         type: string
       options:
-        description: Extra faust2jaqt options (for instance "-midi -nvoices 8")
+        description: Extra faust2jaqt options
         default: ""
         type: string
       arch:
-        description: Architecture of the application
+        description: Architecture of the result
         default: arm64
         type: choice
         options: [arm64]
@@ -48,46 +49,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Faust
-        uses: ./.github/actions/setup-faust
-
-      - name: Set up Qt
-        id: qt
-        uses: ./.github/actions/setup-qt
+      - name: Build
+        id: build
+        uses: ./
         with:
-          version: ${{ inputs.qt }}
+          target: jaqt
+          dsp-from-event: "true"
+          name: ${{ inputs.name }}
+          options: ${{ inputs.options }}
+          arch: ${{ inputs.arch }}
+          qt: ${{ inputs.qt }}
 
-      - name: Install JACK
-        run: |
-          brew install --quiet jack
-          echo "jack $(pkg-config --modversion jack) in $(pkg-config --variable=libdir jack)"
-
-      # Inputs reach the script through the environment only: expanding them
-      # inside the script text would let the Faust source run shell commands.
-      # dsp and archive are not passed at all: lib.sh reads them from the
-      # event payload, since the log prints each step's environment.
-      - name: Compile
-        env:
-          NAME: ${{ inputs.name }}
-          OPTIONS: ${{ inputs.options }}
-          ARCH: ${{ inputs.arch }}
-          QTDIR: ${{ steps.qt.outputs.qtdir }}
-          OUT: ${{ runner.temp }}/out
-        run: scripts/build-jaqt.sh
-
-      - name: Upload the application
+      - name: Upload the result
         uses: actions/upload-artifact@v7
         with:
-          path: ${{ runner.temp }}/out/${{ inputs.name }}-jaqt.zip
+          path: ${{ steps.build.outputs.zip }}
           archive: false
           retention-days: 7
           if-no-files-found: error
 
+      # The path is spelled out: the outputs of the action are not set when
+      # it fails, and the log is what explains the failure.
       - name: Upload the build log
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.name }}-log
-          path: ${{ runner.temp }}/out/build.log
+          path: ${{ runner.temp }}/faustosx/jaqt-${{ inputs.name }}/build.log
           retention-days: 7
           if-no-files-found: ignore

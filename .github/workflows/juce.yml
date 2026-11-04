@@ -1,8 +1,9 @@
 name: JUCE plugins
 
-# One run compiles one Faust program with faust2juce and the CMake project
-# it writes, and returns the AU, VST3 and Standalone builds as a zip
-# artifact named <name>-juce.zip.
+# Compiles one Faust program with the action of this repository
+# (action.yml, target juce) and returns the AU, VST3 and Standalone builds as a zip artifact named
+# <name>-juce.zip, plus the build log as <name>-log. The source comes
+# from the dsp or archive input, which the log does not show.
 run-name: juce ${{ inputs.name }} ${{ inputs.tag }}
 
 on:
@@ -21,11 +22,11 @@ on:
         default: foo
         type: string
       options:
-        description: Extra faust2juce options (for instance "-midi -nvoices 8")
+        description: Extra faust2juce options
         default: ""
         type: string
       arch:
-        description: Architecture of the plugins
+        description: Architecture of the result
         default: universal
         type: choice
         options: [universal, arm64, x86_64]
@@ -48,41 +49,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Faust
-        uses: ./.github/actions/setup-faust
-
-      - name: Set up JUCE
-        id: juce
-        uses: ./.github/actions/setup-juce
+      - name: Build
+        id: build
+        uses: ./
         with:
-          version: ${{ inputs.juce }}
+          target: juce
+          dsp-from-event: "true"
+          name: ${{ inputs.name }}
+          options: ${{ inputs.options }}
+          arch: ${{ inputs.arch }}
+          juce: ${{ inputs.juce }}
 
-      # Inputs reach the script through the environment only: expanding them
-      # inside the script text would let the Faust source run shell commands.
-      # dsp and archive are not passed at all: lib.sh reads them from the
-      # event payload, since the log prints each step's environment.
-      - name: Compile
-        env:
-          NAME: ${{ inputs.name }}
-          OPTIONS: ${{ inputs.options }}
-          ARCH: ${{ inputs.arch }}
-          JUCEDIR: ${{ steps.juce.outputs.jucedir }}
-          OUT: ${{ runner.temp }}/out
-        run: scripts/build-juce.sh
-
-      - name: Upload the plugins
+      - name: Upload the result
         uses: actions/upload-artifact@v7
         with:
-          path: ${{ runner.temp }}/out/${{ inputs.name }}-juce.zip
+          path: ${{ steps.build.outputs.zip }}
           archive: false
           retention-days: 7
           if-no-files-found: error
 
+      # The path is spelled out: the outputs of the action are not set when
+      # it fails, and the log is what explains the failure.
       - name: Upload the build log
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.name }}-log
-          path: ${{ runner.temp }}/out/build.log
+          path: ${{ runner.temp }}/faustosx/juce-${{ inputs.name }}/build.log
           retention-days: 7
           if-no-files-found: ignore

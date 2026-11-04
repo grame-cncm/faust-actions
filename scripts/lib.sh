@@ -1,13 +1,17 @@
 # Shared part of the build-*.sh scripts: input checks, sources, logging,
 # architecture checks and packaging. Sourced, not run.
 #
-# Environment read here:
-#   DSP      Faust source code (text), or
+# Environment read here, the sources first, exactly one of:
+#   DSP_FILE a .dsp file; the files next to it with the extensions accepted
+#            in archives (.lib, .dsp, .json, soundfiles) come with it
+#   DSP      Faust source code (text)
 #   ARCHIVE  base64 of a tar.gz holding $NAME.dsp and the files it imports
 #            (.lib, other .dsp, soundfiles), without directories
-#            In a workflow run, both come from the dsp and archive inputs
-#            in $GITHUB_EVENT_PATH, not from the environment (see below).
-#   NAME     program name, without .dsp
+#   With FAUSTOSX_FROM_EVENT=1, DSP and ARCHIVE are the dsp and archive
+#   inputs of the workflow_dispatch event in $GITHUB_EVENT_PATH instead of
+#   environment variables (see below).
+# then:
+#   NAME     program name, without .dsp (default with DSP_FILE: its name)
 #   OPTIONS  extra options for the faust2xxx script, checked by check_options
 #   ARCH     universal, arm64 or x86_64
 #   OUT      output directory; receives the zip and build.log
@@ -15,10 +19,16 @@
 set -euo pipefail
 set -f    # no globbing when OPTIONS is split into words
 
-: "${NAME:?}" "${ARCH:?}" "${OUT:?}"
+: "${ARCH:?}" "${OUT:?}"
 DSP=${DSP:-}
 ARCHIVE=${ARCHIVE:-}
+DSP_FILE=${DSP_FILE:-}
 OPTIONS=${OPTIONS:-}
+NAME=${NAME:-}
+if [ -z "$NAME" ] && [ -n "$DSP_FILE" ]; then
+    NAME=$(basename "$DSP_FILE" .dsp)
+fi
+: "${NAME:?}"
 
 # build.log is the artifact a client reads when the run fails, so every
 # refusal goes there as well as to the Actions annotations.
@@ -27,9 +37,10 @@ mkdir -p "$OUT"
 fail() { echo "ERROR: $*" >> "$OUT/build.log"; echo "::error::$*" >&2; exit 1; }
 
 # The Actions log prints the environment of each step in its header, which
-# would publish the user's source on a public repository. The workflows
-# therefore do not pass dsp and archive in the environment: they are read
-# from the event payload, which the log does not show.
+# would publish the user's source on a public repository. The workflows of
+# this repository therefore do not pass dsp and archive in the environment:
+# with FAUSTOSX_FROM_EVENT=1 they are read from the event payload, which
+# the log does not show.
 event_input() {
     if command -v jq > /dev/null; then
         jq -r --arg k "$1" '.inputs[$k] // ""' "$GITHUB_EVENT_PATH"
@@ -38,15 +49,23 @@ event_input() {
             "$GITHUB_EVENT_PATH" "$1"
     fi
 }
-if [ -z "$DSP" ] && [ -z "$ARCHIVE" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
+if [ "${FAUSTOSX_FROM_EVENT:-}" = 1 ]; then
+    [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "$GITHUB_EVENT_PATH" ] \
+        || fail "FAUSTOSX_FROM_EVENT=1 needs the event payload in GITHUB_EVENT_PATH"
+    [ -z "$DSP$ARCHIVE$DSP_FILE" ] || fail "FAUSTOSX_FROM_EVENT=1 takes the sources from the event only"
     DSP=$(event_input dsp) || fail "cannot read the dsp input from $GITHUB_EVENT_PATH"
     ARCHIVE=$(event_input archive) || fail "cannot read the archive input from $GITHUB_EVENT_PATH"
 fi
 
-if [ -n "$DSP" ] && [ -n "$ARCHIVE" ]; then
-    fail "give either dsp or archive, not both"
-elif [ -z "$DSP" ] && [ -z "$ARCHIVE" ]; then
-    fail "give dsp or archive"
+n_sources=0
+for s in "$DSP" "$ARCHIVE" "$DSP_FILE"; do
+    [ -n "$s" ] && n_sources=$((n_sources + 1))
+done
+[ $n_sources -eq 1 ] || fail "give exactly one of dsp, archive and a .dsp file ($n_sources given)"
+if [ -n "$DSP_FILE" ]; then
+    [ -f "$DSP_FILE" ] || fail "$DSP_FILE is not a file"
+    [[ "$DSP_FILE" == *.dsp ]] || fail "$DSP_FILE is not a .dsp file"
+    DSP_FILE=$(cd "$(dirname "$DSP_FILE")" && pwd)/$(basename "$DSP_FILE")
 fi
 
 [[ "$NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
@@ -147,11 +166,40 @@ unpack_archive() {
     echo "archive: $(echo $names)" >> "$OUT/build.log"
 }
 
+# copy_dsp_file: copy DSP_FILE into the current directory as $NAME.dsp,
+# with the regular files next to it that an archive would accept (same
+# names and extensions, at most MAX_TAR_SIZE bytes in all). Symbolic links
+# and directories are left out.
+copy_dsp_file() {
+    local dir name size total=0 copied=""
+    dir=$(dirname "$DSP_FILE")
+    while IFS= read -r f; do
+        name=$(basename "$f")
+        [ "$f" = "$DSP_FILE" ] && continue
+        [[ "$name" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]] || continue
+        case "${name##*.}" in
+            dsp|lib|json|wav|aif|aiff|flac|ogg|mp3) ;;
+            *) continue ;;
+        esac
+        size=$(wc -c < "$f" | tr -d ' ')
+        total=$((total + size))
+        [ $total -le $MAX_TAR_SIZE ] || fail "the files next to $DSP_FILE exceed $MAX_TAR_SIZE bytes"
+        cp "$f" "./$name"
+        copied="$copied $name"
+    done < <(find "$dir" -maxdepth 1 -type f | sort)
+    [ "$NAME.dsp" = "$(basename "$DSP_FILE")" ] || [ ! -e "$NAME.dsp" ] \
+        || fail "$dir holds a $NAME.dsp that is not $DSP_FILE"
+    cp "$DSP_FILE" "./$NAME.dsp"
+    echo "dsp file: $(basename "$DSP_FILE") as $NAME.dsp, with:${copied:- nothing}" >> "$OUT/build.log"
+}
+
 # prepare_sources: create $OUT/$NAME, go there, and put the sources in it
 prepare_sources() {
     mkdir -p "$OUT/$NAME"
     cd "$OUT/$NAME"
-    if [ -n "$DSP" ]; then
+    if [ -n "$DSP_FILE" ]; then
+        copy_dsp_file
+    elif [ -n "$DSP" ]; then
         printf '%s\n' "$DSP" > "$NAME.dsp"
     else
         unpack_archive
@@ -171,7 +219,7 @@ run_logged() {
         echo "$*"
     } >> "$OUT/build.log"
     local status=0
-    env -u DSP -u ARCHIVE -u OPTIONS -u NAME -u ARCH -u OUT \
+    env -u DSP -u ARCHIVE -u DSP_FILE -u OPTIONS -u NAME -u ARCH -u OUT \
         "$@" >> "$OUT/build.log" 2>&1 || status=$?
     cat "$OUT/build.log"
     [ $status -eq 0 ] || fail "$1 failed with status $status"

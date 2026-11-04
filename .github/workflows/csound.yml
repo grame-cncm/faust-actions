@@ -1,7 +1,9 @@
 name: Csound opcode
 
-# One run compiles one Faust program with faust2csound and returns
-# the opcode (<name>.dylib) as a zip artifact named <name>-csound.zip.
+# Compiles one Faust program with the action of this repository
+# (action.yml, target csound) and returns the opcode (<name>.dylib) as a zip artifact named
+# <name>-csound.zip, plus the build log as <name>-log. The source comes
+# from the dsp or archive input, which the log does not show.
 run-name: csound ${{ inputs.name }} ${{ inputs.tag }}
 
 on:
@@ -47,75 +49,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Faust
-        uses: ./.github/actions/setup-faust
-
-      # The headers come from the official installer, which also holds the
-      # headers Csound generates at build time (float-version.h, version.h).
-      # Restore and save are separate steps, as for Faust.
-      - name: Restore the Csound headers
-        id: csound-cache
-        uses: actions/cache/restore@v6
+      - name: Build
+        id: build
+        uses: ./
         with:
-          path: ${{ runner.temp }}/csound-headers
-          key: csound-headers-${{ inputs.csound }}
-
-      - name: Get the Csound headers
-        if: steps.csound-cache.outputs.cache-hit != 'true'
-        env:
-          CSOUND_VERSION: ${{ inputs.csound }}
-        run: |
-          set -euo pipefail
-          [[ "$CSOUND_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid Csound version '$CSOUND_VERSION'"; exit 1; }
-          curl -sSfL -o "$RUNNER_TEMP/csound.dmg" \
-            "https://github.com/csound/csound/releases/download/$CSOUND_VERSION/Csound-MacOS-universal-$CSOUND_VERSION.dmg"
-          hdiutil attach -quiet -nobrowse -readonly -mountpoint "$RUNNER_TEMP/csound-dmg" "$RUNNER_TEMP/csound.dmg"
-          pkg=$(find "$RUNNER_TEMP/csound-dmg" -maxdepth 2 -name '*.pkg' | head -n 1)
-          [ -n "$pkg" ] || { echo "::error::no .pkg in the Csound dmg"; ls -R "$RUNNER_TEMP/csound-dmg" | head -n 40; exit 1; }
-          pkgutil --expand-full "$pkg" "$RUNNER_TEMP/csound-pkg"
-          hdiutil detach -quiet "$RUNNER_TEMP/csound-dmg"
-          csdl=$(find "$RUNNER_TEMP/csound-pkg" -name csdl.h -path '*CsoundLib64.framework*' | head -n 1)
-          [ -n "$csdl" ] || { echo "::error::no CsoundLib64.framework headers in the Csound installer"; exit 1; }
-          cp -R "$(dirname "$csdl")/" "$RUNNER_TEMP/csound-headers"
-
-      - name: Save the Csound headers
-        if: steps.csound-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ runner.temp }}/csound-headers
-          key: ${{ steps.csound-cache.outputs.cache-primary-key }}
-
-      - name: Check the Csound headers
-        run: |
-          ls "$RUNNER_TEMP/csound-headers" | tr '\n' ' '; echo
-          grep -m1 'define VERSION' "$RUNNER_TEMP/csound-headers/version.h" || true
-
-      # Inputs reach the script through the environment only: expanding them
-      # inside the script text would let the Faust source run shell commands.
-      # dsp and archive are not passed at all: lib.sh reads them from the
-      # event payload, since the log prints each step's environment.
-      - name: Compile
-        env:
-          NAME: ${{ inputs.name }}
-          OPTIONS: ${{ inputs.options }}
-          ARCH: ${{ inputs.arch }}
-          CSOUND_HEADERS: ${{ runner.temp }}/csound-headers
-          OUT: ${{ runner.temp }}/out
-        run: scripts/build-csound.sh
+          target: csound
+          dsp-from-event: "true"
+          name: ${{ inputs.name }}
+          options: ${{ inputs.options }}
+          arch: ${{ inputs.arch }}
+          csound: ${{ inputs.csound }}
 
       - name: Upload the result
         uses: actions/upload-artifact@v7
         with:
-          path: ${{ runner.temp }}/out/${{ inputs.name }}-csound.zip
+          path: ${{ steps.build.outputs.zip }}
           archive: false
           retention-days: 7
           if-no-files-found: error
 
+      # The path is spelled out: the outputs of the action are not set when
+      # it fails, and the log is what explains the failure.
       - name: Upload the build log
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.name }}-log
-          path: ${{ runner.temp }}/out/build.log
+          path: ${{ runner.temp }}/faustosx/csound-${{ inputs.name }}/build.log
           retention-days: 7
           if-no-files-found: ignore

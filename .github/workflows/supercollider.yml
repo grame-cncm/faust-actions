@@ -1,7 +1,9 @@
 name: SuperCollider UGen
 
-# One run compiles one Faust program with faust2supercollider and returns
-# the UGen (<name>.scx) and its class file (<name>.sc) as a zip artifact named <name>-supercollider.zip.
+# Compiles one Faust program with the action of this repository
+# (action.yml, target supercollider) and returns the UGen (<name>.scx) and its class file (<name>.sc) as a zip artifact named
+# <name>-supercollider.zip, plus the build log as <name>-log. The source comes
+# from the dsp or archive input, which the log does not show.
 run-name: supercollider ${{ inputs.name }} ${{ inputs.tag }}
 
 on:
@@ -47,46 +49,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Faust
-        uses: ./.github/actions/setup-faust
-
-      # Only the include/ directory of the sources is fetched (sparse checkout).
-      - name: Get the SuperCollider headers
-        env:
-          SC_VERSION: ${{ inputs.sc }}
-        run: |
-          set -euo pipefail
-          [[ "$SC_VERSION" =~ ^Version-[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid SuperCollider version '$SC_VERSION'"; exit 1; }
-          git clone -q --depth 1 --branch "$SC_VERSION" --filter=blob:none --sparse https://github.com/supercollider/supercollider "$RUNNER_TEMP/sc"
-          git -C "$RUNNER_TEMP/sc" sparse-checkout set include
-          ls "$RUNNER_TEMP/sc/include"
-
-      # Inputs reach the script through the environment only: expanding them
-      # inside the script text would let the Faust source run shell commands.
-      # dsp and archive are not passed at all: lib.sh reads them from the
-      # event payload, since the log prints each step's environment.
-      - name: Compile
-        env:
-          NAME: ${{ inputs.name }}
-          OPTIONS: ${{ inputs.options }}
-          ARCH: ${{ inputs.arch }}
-          SUPERCOLLIDER_HEADERS: ${{ runner.temp }}/sc/include
-          OUT: ${{ runner.temp }}/out
-        run: scripts/build-supercollider.sh
+      - name: Build
+        id: build
+        uses: ./
+        with:
+          target: supercollider
+          dsp-from-event: "true"
+          name: ${{ inputs.name }}
+          options: ${{ inputs.options }}
+          arch: ${{ inputs.arch }}
+          sc: ${{ inputs.sc }}
 
       - name: Upload the result
         uses: actions/upload-artifact@v7
         with:
-          path: ${{ runner.temp }}/out/${{ inputs.name }}-supercollider.zip
+          path: ${{ steps.build.outputs.zip }}
           archive: false
           retention-days: 7
           if-no-files-found: error
 
+      # The path is spelled out: the outputs of the action are not set when
+      # it fails, and the log is what explains the failure.
       - name: Upload the build log
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.name }}-log
-          path: ${{ runner.temp }}/out/build.log
+          path: ${{ runner.temp }}/faustosx/supercollider-${{ inputs.name }}/build.log
           retention-days: 7
           if-no-files-found: ignore

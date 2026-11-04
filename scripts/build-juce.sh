@@ -48,7 +48,7 @@ esac
 step() {
     echo "$*" >> "$OUT/build.log"
     local status=0
-    env -u DSP -u ARCHIVE -u OPTIONS -u NAME -u ARCH -u OUT \
+    env -u DSP -u ARCHIVE -u DSP_FILE -u OPTIONS -u NAME -u ARCH -u OUT \
         "$@" >> "$OUT/build.log" 2>&1 || status=$?
     if [ $status -ne 0 ]; then
         tail -n 60 "$OUT/build.log"

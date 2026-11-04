@@ -1,0 +1,53 @@
+name: Test the action
+
+# Uses action.yml as another repository would: with a .dsp file of the
+# repository (tests/withlib/withlib.dsp, which imports mylib.lib next to
+# it), for every target, and checks the zip it returns.
+run-name: test action ${{ inputs.targets }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: Targets to test, as a JSON list
+        default: '["max", "caqt", "jaqt", "juce", "puredata", "supercollider", "csound"]'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(inputs.targets) }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build
+        id: build
+        uses: ./
+        with:
+          target: ${{ matrix.target }}
+          dsp: tests/withlib/withlib.dsp
+          arch: ${{ matrix.target == 'jaqt' && 'arm64' || 'universal' }}
+
+      - name: Check the zip
+        env:
+          ZIP: ${{ steps.build.outputs.zip }}
+          NAME: ${{ steps.build.outputs.name }}
+        run: |
+          set -euo pipefail
+          echo "zip: $ZIP ($(du -h "$ZIP" | cut -f1)), name: $NAME, faust: ${{ steps.build.outputs.faust-commit }}"
+          unzip -l "$ZIP" | grep -E "$NAME/(withlib\.dsp|mylib\.lib)$" | tee found.txt
+          [ "$(wc -l < found.txt)" -eq 2 ] || { echo "::error::the zip lacks the sources"; exit 1; }
+
+      - name: Upload the result
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-${{ matrix.target }}
+          path: ${{ steps.build.outputs.zip }}
+          retention-days: 1
