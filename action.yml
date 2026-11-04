@@ -1,8 +1,9 @@
 name: Faust build
 description: >
-  Compile a Faust program into macOS binaries (Intel and Apple Silicon):
-  Max externals, CoreAudio/Qt or JACK/Qt applications, JUCE plugins, Pure
-  Data externals, SuperCollider UGens or Csound opcodes.
+  Compile a Faust program into binaries for macOS (universal: Intel and
+  Apple Silicon), Linux and Windows: Max externals, CoreAudio/Qt or
+  JACK/Qt applications, JUCE plugins, LV2 plugins, Pure Data externals,
+  SuperCollider UGens or Csound opcodes.
 author: GRAME
 branding:
   icon: music
@@ -10,7 +11,9 @@ branding:
 
 inputs:
   target:
-    description: max, caqt, jaqt (arm64 only), juce, puredata, supercollider or csound
+    description: >
+      max, caqt, jaqt (macOS); juce (macOS, Linux, Windows); puredata,
+      supercollider, csound (macOS, Linux); lv2 (Linux)
     required: true
   dsp:
     description: >
@@ -21,8 +24,8 @@ inputs:
   dsp-from-event:
     description: >
       "true" to take the source from the dsp or archive input of the
-      workflow_dispatch event instead of a file (used by the workflows of
-      grame-cncm/faust-actions)
+      workflow_dispatch event instead of a file (for workflows started by a
+      service)
     default: "false"
   name:
     description: "Program name, without .dsp (default: the name of the dsp file)"
@@ -31,8 +34,11 @@ inputs:
     description: Options for the faust2xxx script, checked against its allow-list
     default: ""
   arch:
-    description: universal, arm64 or x86_64 (jaqt only builds arm64)
-    default: universal
+    description: >
+      auto (universal on macOS, the runner's architecture elsewhere),
+      universal, arm64 or x86_64 (jaqt: arm64; Linux and Windows: the
+      runner's architecture only)
+    default: auto
   faust-ref:
     description: Branch of grame-cncm/faust to build Faust from (faust2max6 and faust2caqt need -arch, not in a release yet)
     default: master-dev
@@ -43,13 +49,13 @@ inputs:
     description: JUCE tag, for juce
     default: 8.0.10
   pd:
-    description: Pure Data tag whose m_pd.h is used, for puredata
+    description: Pure Data tag whose m_pd.h is used, for puredata on macOS (Linux uses puredata-dev)
     default: 0.56-5
   sc:
-    description: SuperCollider tag whose headers are used, for supercollider
+    description: SuperCollider tag whose headers are used, for supercollider on macOS (Linux uses supercollider-dev)
     default: Version-3.14.1
   csound:
-    description: Csound release whose headers are used, for csound
+    description: Csound release whose headers are used, for csound on macOS (Linux uses libcsound64-dev)
     default: 6.18.1
 
 outputs:
@@ -62,6 +68,9 @@ outputs:
   name:
     description: Program name
     value: ${{ steps.paths.outputs.name }}
+  arch:
+    description: Architecture of the result (universal, arm64 or x86_64)
+    value: ${{ steps.paths.outputs.arch }}
   faust-commit:
     description: Faust commit used
     value: ${{ steps.paths.outputs.faust_sha }}
@@ -69,10 +78,11 @@ outputs:
 runs:
   using: composite
   steps:
-    # The universal builds rely on an arm64 runner: faust2puredata and
-    # faust2supercollider only build both architectures there, and on an
-    # Intel Mac faustoptflags adds -march=native, which would tune the code
-    # for the runner's CPU.
+    # Which runner each target needs. On macOS the runner must be arm64: the
+    # universal builds rely on it (faust2puredata and faust2supercollider
+    # only build both architectures there, and on an Intel Mac faustoptflags
+    # adds -march=native, which would tune the code for the runner's CPU).
+    # On Linux and Windows the result is built for the runner's architecture.
     - name: Check the runner and the inputs
       id: paths
       shell: bash
@@ -80,16 +90,32 @@ runs:
         TARGET: ${{ inputs.target }}
         DSP_INPUT: ${{ inputs.dsp }}
         NAME_INPUT: ${{ inputs.name }}
+        ARCH_INPUT: ${{ inputs.arch }}
         FROM_EVENT: ${{ inputs.dsp-from-event }}
         FAUST_REF: ${{ inputs.faust-ref }}
       run: |
         set -euo pipefail
-        [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] \
-            || { echo "::error::this action needs an arm64 macOS runner (runs-on: macos-15), not $(uname -s) $(uname -m)"; exit 1; }
+        os=$RUNNER_OS; machine=$RUNNER_ARCH
         case "$TARGET" in
-            max|caqt|jaqt|juce|puredata|supercollider|csound) ;;
-            *) echo "::error::unknown target '$TARGET' (max, caqt, jaqt, juce, puredata, supercollider, csound)"; exit 1 ;;
+            max|caqt|jaqt) systems="macOS" ;;
+            juce) systems="macOS Linux Windows" ;;
+            puredata|supercollider|csound) systems="macOS Linux" ;;
+            lv2) systems="Linux" ;;
+            *) echo "::error::unknown target '$TARGET' (max, caqt, jaqt, juce, lv2, puredata, supercollider, csound)"; exit 1 ;;
         esac
+        [[ " $systems " == *" $os "* ]] || { echo "::error::target $TARGET builds on $systems, not on $os: change runs-on"; exit 1; }
+        case "$os:$machine" in
+            macOS:ARM64|Linux:X64|Linux:ARM64|Windows:X64) ;;
+            macOS:*) echo "::error::this action needs an arm64 macOS runner (runs-on: macos-15), not $machine"; exit 1 ;;
+            *) echo "::error::$os $machine runners are not supported"; exit 1 ;;
+        esac
+        arch=$ARCH_INPUT
+        if [ "$arch" = auto ]; then
+            if [ "$os" = macOS ]; then arch=universal
+            elif [ "$machine" = ARM64 ]; then arch=arm64
+            else arch=x86_64; fi
+            [ "$TARGET" = jaqt ] && arch=arm64
+        fi
         name=$NAME_INPUT
         if [ "$FROM_EVENT" = true ]; then
             [ -z "$DSP_INPUT" ] || { echo "::error::give dsp or dsp-from-event, not both"; exit 1; }
@@ -102,29 +128,46 @@ runs:
             || { echo "::error::invalid name '$name': letters, digits and '_' only, not starting with a digit (set the name input)"; exit 1; }
         sha=$(git ls-remote https://github.com/grame-cncm/faust "refs/heads/$FAUST_REF" | cut -f1)
         [ -n "$sha" ] || { echo "::error::branch '$FAUST_REF' not found in grame-cncm/faust"; exit 1; }
+        out="$RUNNER_TEMP/faustosx/$TARGET-$name"
+        prefix="$RUNNER_TEMP/faust-install"
+        if [ "$os" = Windows ]; then out=$(cygpath -m "$out"); prefix=$(cygpath -m "$prefix"); fi
         {
             echo "name=$name"
-            echo "out=$RUNNER_TEMP/faustosx/$TARGET-$name"
+            echo "arch=$arch"
+            echo "out=$out"
             echo "faust_sha=$sha"
-            echo "faust_prefix=$RUNNER_TEMP/faust-install"
+            echo "faust_prefix=$prefix"
+            # scripts: the action's scripts directory, as a path bash runs
+            if [ "$os" = Windows ]; then
+                echo "scripts=$(cygpath -u "$GITHUB_ACTION_PATH")/scripts"
+            else
+                echo "scripts=$GITHUB_ACTION_PATH/scripts"
+            fi
         } >> "$GITHUB_OUTPUT"
 
-    # Faust, built once per commit and cached. Restore and save are separate
-    # steps: actions/cache saves only when the whole job succeeds, and a job
-    # fails whenever the user's program does not compile.
+    # Faust, built once per commit and system and cached. Restore and save
+    # are separate steps: actions/cache saves only when the whole job
+    # succeeds, and a job fails whenever the user's program does not
+    # compile.
     - name: Restore Faust
       id: faust-cache
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.paths.outputs.faust_prefix }}
         key: faust-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.faust_sha }}
+    - name: Install what the Faust build needs (Linux)
+      if: runner.os == 'Linux' && steps.faust-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq libmicrohttpd-dev > /dev/null
     - name: Build Faust
       if: steps.faust-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         SHA: ${{ steps.paths.outputs.faust_sha }}
         PREFIX: ${{ steps.paths.outputs.faust_prefix }}
-      run: '"$GITHUB_ACTION_PATH/scripts/setup/faust.sh"'
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
+      run: |
+        if [ "$RUNNER_OS" = Windows ]; then "$SCRIPTS/setup/faust-windows.sh"; else "$SCRIPTS/setup/faust.sh"; fi
     - name: Save Faust
       if: steps.faust-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
@@ -139,7 +182,31 @@ runs:
         echo "$PREFIX/bin" >> "$GITHUB_PATH"
         "$PREFIX/bin/faust" --version | head -n 2
 
-    # Qt, for caqt and jaqt
+    # Linux packages of each target
+    - name: Install the target's packages (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        case "$TARGET" in
+            lv2) packages="lv2-dev libboost-dev" ;;
+            puredata) packages="puredata-dev" ;;
+            supercollider) packages="supercollider-dev ruby" ;;
+            csound) packages="libcsound64-dev" ;;
+            # JUCE's Linux dependencies, without curl and webkit
+            # (faust2juce's project sets JUCE_USE_CURL=0, JUCE_WEB_BROWSER=0)
+            juce) packages="libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev" ;;
+            *) packages="" ;;
+        esac
+        if [ -n "$packages" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq $packages > /dev/null
+            echo "installed: $packages"
+        fi
+
+    # Qt, for caqt and jaqt (macOS)
     - name: Restore Qt
       if: inputs.target == 'caqt' || inputs.target == 'jaqt'
       id: qt-cache
@@ -153,7 +220,8 @@ runs:
       env:
         QT_VERSION: ${{ inputs.qt }}
         ROOT: ${{ runner.temp }}/Qt
-      run: '"$GITHUB_ACTION_PATH/scripts/setup/qt.sh"'
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
+      run: '"$SCRIPTS/setup/qt.sh"'
     - name: Save Qt
       if: (inputs.target == 'caqt' || inputs.target == 'jaqt') && steps.qt-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
@@ -183,7 +251,8 @@ runs:
       env:
         JUCE_VERSION: ${{ inputs.juce }}
         JUCEDIR: ${{ runner.temp }}/JUCE
-      run: '"$GITHUB_ACTION_PATH/scripts/setup/juce.sh"'
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
+      run: '"$SCRIPTS/setup/juce.sh"'
     - name: Save JUCE
       if: inputs.target == 'juce' && steps.juce-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
@@ -197,43 +266,47 @@ runs:
       shell: bash
       env:
         DEST: ${{ runner.temp }}/max-sdk-base
-      run: '"$GITHUB_ACTION_PATH/scripts/setup/maxsdk.sh"'
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
+      run: '"$SCRIPTS/setup/maxsdk.sh"'
 
-    # m_pd.h, for puredata
+    # m_pd.h, for puredata on macOS
     - name: Get m_pd.h
-      if: inputs.target == 'puredata'
+      if: inputs.target == 'puredata' && runner.os == 'macOS'
       shell: bash
       env:
         PD_VERSION: ${{ inputs.pd }}
         DEST: ${{ runner.temp }}/pd
-      run: '"$GITHUB_ACTION_PATH/scripts/setup/pd.sh"'
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
+      run: '"$SCRIPTS/setup/pd.sh"'
 
-    # SuperCollider headers, for supercollider
+    # SuperCollider headers, for supercollider on macOS
     - name: Get the SuperCollider headers
-      if: inputs.target == 'supercollider'
+      if: inputs.target == 'supercollider' && runner.os == 'macOS'
       shell: bash
       env:
         SC_VERSION: ${{ inputs.sc }}
         DEST: ${{ runner.temp }}/sc
-      run: '"$GITHUB_ACTION_PATH/scripts/setup/sc.sh"'
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
+      run: '"$SCRIPTS/setup/sc.sh"'
 
-    # Csound headers, for csound, cached
+    # Csound headers, for csound on macOS, cached
     - name: Restore the Csound headers
-      if: inputs.target == 'csound'
+      if: inputs.target == 'csound' && runner.os == 'macOS'
       id: csound-cache
       uses: actions/cache/restore@v6
       with:
         path: ${{ runner.temp }}/csound-headers
         key: csound-headers-${{ inputs.csound }}
     - name: Get the Csound headers
-      if: inputs.target == 'csound' && steps.csound-cache.outputs.cache-hit != 'true'
+      if: inputs.target == 'csound' && runner.os == 'macOS' && steps.csound-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         CSOUND_VERSION: ${{ inputs.csound }}
         DEST: ${{ runner.temp }}/csound-headers
-      run: '"$GITHUB_ACTION_PATH/scripts/setup/csound.sh"'
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
+      run: '"$SCRIPTS/setup/csound.sh"'
     - name: Save the Csound headers
-      if: inputs.target == 'csound' && steps.csound-cache.outputs.cache-hit != 'true'
+      if: inputs.target == 'csound' && runner.os == 'macOS' && steps.csound-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
         path: ${{ runner.temp }}/csound-headers
@@ -252,12 +325,13 @@ runs:
         FAUSTOSX_FROM_EVENT: ${{ inputs.dsp-from-event == 'true' && '1' || '' }}
         NAME: ${{ steps.paths.outputs.name }}
         OPTIONS: ${{ inputs.options }}
-        ARCH: ${{ inputs.arch }}
+        ARCH: ${{ steps.paths.outputs.arch }}
         OUT: ${{ steps.paths.outputs.out }}
+        SCRIPTS: ${{ steps.paths.outputs.scripts }}
         MAXSDK: ${{ runner.temp }}/max-sdk-base/c74support
         QTDIR: ${{ runner.temp }}/Qt/${{ inputs.qt }}/macos
         JUCEDIR: ${{ runner.temp }}/JUCE
         PUREDATA_MACSDK: ${{ runner.temp }}/pd
-        SUPERCOLLIDER_HEADERS: ${{ runner.temp }}/sc/include
-        CSOUND_HEADERS: ${{ runner.temp }}/csound-headers
-      run: '"$GITHUB_ACTION_PATH/scripts/build-$TARGET.sh"'
+        SUPERCOLLIDER_HEADERS: ${{ runner.os == 'Linux' && '/usr/include/SuperCollider' || format('{0}/sc/include', runner.temp) }}
+        CSOUND_HEADERS: ${{ runner.os == 'Linux' && '/usr/include/csound' || format('{0}/csound-headers', runner.temp) }}
+      run: '"$SCRIPTS/build-$TARGET.sh"'

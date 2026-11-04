@@ -13,8 +13,10 @@
 # then:
 #   NAME     program name, without .dsp (default with DSP_FILE: its name)
 #   OPTIONS  extra options for the faust2xxx script, checked by check_options
-#   ARCH     universal, arm64 or x86_64
+#   ARCH     universal, arm64 or x86_64 on macOS; on Linux and Windows, the
+#            runner's own architecture (x86_64 or arm64), or native
 #   OUT      output directory; receives the zip and build.log
+# OS is set here: macos, linux or windows (Git Bash on a Windows runner).
 
 set -euo pipefail
 set -f    # no globbing when OPTIONS is split into words
@@ -30,11 +32,34 @@ if [ -z "$NAME" ] && [ -n "$DSP_FILE" ]; then
 fi
 : "${NAME:?}"
 
+case "$(uname -s)" in
+    Darwin) OS=macos ;;
+    Linux) OS=linux ;;
+    MINGW*|MSYS*|CYGWIN*) OS=windows ;;
+    *) echo "::error::unsupported system $(uname -s)" >&2; exit 1 ;;
+esac
+
+# unix_path <path>: on Windows, the runner gives paths as D:\a\...; Git
+# Bash tools want /d/a/... Elsewhere the path is returned as is.
+unix_path() {
+    if [ "$OS" = windows ] && [ -n "$1" ]; then cygpath -u "$1"; else printf '%s\n' "$1"; fi
+}
+OUT=$(unix_path "$OUT")
+DSP_FILE=$(unix_path "$DSP_FILE")
+[ -z "${GITHUB_EVENT_PATH:-}" ] || GITHUB_EVENT_PATH=$(unix_path "$GITHUB_EVENT_PATH")
+
 # build.log is the artifact a client reads when the run fails, so every
 # refusal goes there as well as to the Actions annotations.
 mkdir -p "$OUT"
 : > "$OUT/build.log"
 fail() { echo "ERROR: $*" >> "$OUT/build.log"; echo "::error::$*" >&2; exit 1; }
+
+# require_os <os...>: stop unless OS is one of them
+require_os() {
+    local o
+    for o in "$@"; do [ "$OS" = "$o" ] && return 0; done
+    fail "this target builds on $* only, not on $OS"
+}
 
 # The Actions log prints the environment of each step in its header, which
 # would publish the user's source on a public repository. The workflows of
@@ -45,7 +70,8 @@ event_input() {
     if command -v jq > /dev/null; then
         jq -r --arg k "$1" '.inputs[$k] // ""' "$GITHUB_EVENT_PATH"
     else
-        python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("inputs", {}).get(sys.argv[2]) or "")' \
+        "$(command -v python3 || command -v python)" -I -c \
+            'import json, sys; print(json.load(open(sys.argv[1])).get("inputs", {}).get(sys.argv[2]) or "")' \
             "$GITHUB_EVENT_PATH" "$1"
     fi
 }
@@ -71,12 +97,24 @@ fi
 [[ "$NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
     || fail "invalid name '$NAME': letters, digits and '_' only, not starting with a digit"
 
-# EXPECTED_ARCHS: the slices every Mach-O file of the result must contain
+# EXPECTED_ARCHS: the architectures every binary of the result must hold
+# (the slices of each Mach-O file on macOS). On Linux and Windows the
+# faust2xxx scripts build for the machine they run on: another architecture
+# needs a runner of that architecture (ubuntu-24.04-arm for arm64).
+case "$(uname -m)" in
+    arm64|aarch64) NATIVE_ARCH=arm64 ;;
+    *) NATIVE_ARCH=x86_64 ;;
+esac
+[ "$ARCH" = native ] && ARCH=$NATIVE_ARCH
 case "$ARCH" in
-    universal) EXPECTED_ARCHS="x86_64 arm64" ;;
+    universal) [ "$OS" = macos ] || fail "universal binaries are macOS only (arch=$ARCH on $OS)"
+               EXPECTED_ARCHS="x86_64 arm64" ;;
     arm64|x86_64) EXPECTED_ARCHS="$ARCH" ;;
     *) fail "invalid arch '$ARCH'" ;;
 esac
+if [ "$OS" != macos ] && [ "$ARCH" != "$NATIVE_ARCH" ]; then
+    fail "on $OS the result is built for the runner's architecture ($NATIVE_ARCH), not $ARCH: use a runner of that architecture"
+fi
 
 # check_options: split OPTIONS into the OPTS array, accepting only
 #   - the options listed in FLAGS (no value),
@@ -157,11 +195,16 @@ unpack_archive() {
     printf '%s\n' "$names" | grep -Fqx "$NAME.dsp" \
         || fail "archive does not contain $NAME.dsp (it holds: $(echo $names))"
 
-    # Restore no metadata. The macOS tar stores extended attributes in pax
-    # headers or in AppleDouble ._* entries; it hides the ._* entries from
-    # the listing above and, when extracting, turns them into attributes of
-    # the matching file unless all of these options are given.
-    tar --no-mac-metadata --no-xattrs --no-acls --no-fflags -xf "$work/in.tar"
+    # Restore no metadata. The macOS tar (bsdtar) stores extended attributes
+    # in pax headers or in AppleDouble ._* entries; it hides the ._* entries
+    # from the listing above and, when extracting, turns them into
+    # attributes of the matching file unless all of these options are
+    # given. GNU tar (Linux, Git Bash) restores none of them by default.
+    if tar --version 2> /dev/null | grep -q bsdtar; then
+        tar --no-mac-metadata --no-xattrs --no-acls --no-fflags -xf "$work/in.tar"
+    else
+        tar --no-same-owner --no-same-permissions -xf "$work/in.tar"
+    fi
     rm -rf "$work"
     echo "archive: $(echo $names)" >> "$OUT/build.log"
 }
@@ -225,9 +268,11 @@ run_logged() {
     [ $status -eq 0 ] || fail "$1 failed with status $status"
 }
 
-# check_bundle_archs <bundle>: every Mach-O file of the bundle (binary,
-# frameworks, plugins) must contain all of EXPECTED_ARCHS
+# check_bundle_archs <bundle or file>: every binary of the bundle (binary,
+# frameworks, plugins) must hold all of EXPECTED_ARCHS: Mach-O slices on
+# macOS, ELF or PE machine types elsewhere, as reported by file(1).
 check_bundle_archs() {
+    [ "$OS" = macos ] || { check_binary_archs "$1"; return; }
     local bundle=$1 f archs a n=0
     while IFS= read -r f; do
         file -b "$f" | grep -q 'Mach-O' || continue
@@ -241,12 +286,49 @@ check_bundle_archs() {
     echo "architectures: $EXPECTED_ARCHS in all $n Mach-O files of $bundle"
 }
 
+check_binary_archs() {
+    local bundle=$1 f desc n=0 want
+    case "$ARCH" in
+        x86_64) want='x86-64' ;;
+        arm64) want='aarch64|Aarch64|ARM64' ;;
+    esac
+    if ! command -v file > /dev/null; then
+        echo "architectures: not checked, file(1) is missing" | tee -a "$OUT/build.log"
+        return 0
+    fi
+    while IFS= read -r f; do
+        desc=$(file -b "$f")
+        case "$desc" in
+            ELF*|PE32*) ;;
+            *) continue ;;
+        esac
+        printf '%s\n' "$desc" | grep -Eq "$want" || fail "${f#"$OUT/"} is not built for $ARCH ($desc)"
+        n=$((n + 1))
+    done < <(find "$bundle" -type f)
+    [ $n -gt 0 ] || fail "$bundle holds no ELF or PE binary"
+    echo "architectures: $ARCH in all $n binaries of $bundle"
+}
+
+# adhoc_sign <path> [codesign options]: sign ad hoc on macOS, nothing
+# elsewhere; verify_signature <path> [options]: check it on macOS
+adhoc_sign() {
+    [ "$OS" = macos ] || return 0
+    local f=$1; shift
+    codesign --sign - --force "$@" "$f"
+}
+verify_signature() {
+    [ "$OS" = macos ] || return 0
+    local f=$1; shift
+    codesign --verify --strict --verbose "$@" "$f"
+}
+
 # thin_to_arch <file>: when ARCH is a single architecture, reduce a
 # universal Mach-O file to it and sign it again (ad hoc). For the scripts
 # that build both architectures without being asked (faust2puredata and
 # faust2supercollider on an arm machine).
 thin_to_arch() {
     local f=$1 archs
+    [ "$OS" = macos ] || return 0
     [ "$ARCH" = universal ] && return 0
     archs=$(lipo -archs "$f")
     if [ "$archs" != "$ARCH" ] && [[ " $archs " == *" $ARCH "* ]]; then
@@ -260,8 +342,14 @@ thin_to_arch() {
 package() {
     cd "$OUT"
     rm -f "$NAME-$1.zip"
-    # Without --noextattr, ditto stores the files' extended attributes as ._*
-    # entries in the zip, which then reappear as stray files on extraction.
-    ditto -c -k --norsrc --noextattr --keepParent "$NAME" "$NAME-$1.zip"
+    case "$OS" in
+        # Without --noextattr, ditto stores the files' extended attributes as
+        # ._* entries in the zip, which then reappear as stray files on
+        # extraction.
+        macos) ditto -c -k --norsrc --noextattr --keepParent "$NAME" "$NAME-$1.zip" ;;
+        # -y stores symbolic links as links
+        linux) zip -qry "$NAME-$1.zip" "$NAME" ;;
+        windows) 7z a -tzip -bso0 -bsp0 "$NAME-$1.zip" "$NAME" ;;
+    esac
     echo "wrote $OUT/$NAME-$1.zip"
 }

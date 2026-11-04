@@ -12,6 +12,7 @@
 # /usr/local/lib (JackOSX installer) or /opt/homebrew/lib (Homebrew).
 
 . "$(dirname "$0")/lib.sh"
+require_os macos
 
 # Arm64 only: faust2jaqt builds for the machine it runs on, and Homebrew's
 # libjack, which it links, is arm64 only.

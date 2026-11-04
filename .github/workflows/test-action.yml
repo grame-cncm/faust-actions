@@ -2,16 +2,12 @@ name: Test the action
 
 # Uses action.yml as another repository would: with a .dsp file of the
 # repository (tests/withlib/withlib.dsp, which imports mylib.lib next to
-# it), for every target, and checks the zip it returns.
-run-name: test action ${{ inputs.targets }}
+# it), for every target on every system it supports, and checks the zip
+# it returns. Also runs the standalone setup actions.
+run-name: test action
 
 on:
   workflow_dispatch:
-    inputs:
-      targets:
-        description: Targets to test, as a JSON list
-        default: '["max", "caqt", "jaqt", "juce", "puredata", "supercollider", "csound"]'
-        type: string
 
 permissions:
   contents: read
@@ -21,9 +17,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(inputs.targets) }}
-    runs-on: macos-15
-    timeout-minutes: 60
+        include:
+          - { runner: macos-15, target: max }
+          - { runner: macos-15, target: caqt }
+          - { runner: macos-15, target: jaqt }
+          - { runner: macos-15, target: juce }
+          - { runner: macos-15, target: puredata }
+          - { runner: macos-15, target: supercollider }
+          - { runner: macos-15, target: csound }
+          - { runner: ubuntu-24.04, target: lv2 }
+          - { runner: ubuntu-24.04, target: juce }
+          - { runner: ubuntu-24.04, target: puredata }
+          - { runner: ubuntu-24.04, target: supercollider }
+          - { runner: ubuntu-24.04, target: csound }
+          - { runner: ubuntu-24.04-arm, target: lv2 }
+          - { runner: ubuntu-24.04-arm, target: puredata }
+          - { runner: windows-2025, target: juce }
+    name: ${{ matrix.target }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -33,22 +45,33 @@ jobs:
         with:
           target: ${{ matrix.target }}
           dsp: tests/withlib/withlib.dsp
-          arch: ${{ matrix.target == 'jaqt' && 'arm64' || 'universal' }}
 
       - name: Check the zip
+        shell: bash
         env:
           ZIP: ${{ steps.build.outputs.zip }}
           NAME: ${{ steps.build.outputs.name }}
+          ARCH: ${{ steps.build.outputs.arch }}
         run: |
           set -euo pipefail
-          echo "zip: $ZIP ($(du -h "$ZIP" | cut -f1)), name: $NAME, faust: ${{ steps.build.outputs.faust-commit }}"
-          unzip -l "$ZIP" | grep -E "$NAME/(withlib\.dsp|mylib\.lib)$" | tee found.txt
-          [ "$(wc -l < found.txt)" -eq 2 ] || { echo "::error::the zip lacks the sources"; exit 1; }
+          echo "zip: $ZIP, name: $NAME, arch: $ARCH, faust: ${{ steps.build.outputs.faust-commit }}"
+          "$(command -v python3 || command -v python)" - "$ZIP" "$NAME" <<'EOF'
+          import sys, zipfile
+          path, name = sys.argv[1], sys.argv[2]
+          names = zipfile.ZipFile(path).namelist()
+          print(f"{len(names)} entries")
+          for n in sorted(names):
+              if n.count("/") <= 2:
+                  print("  " + n)
+          missing = [f for f in (f"{name}/withlib.dsp", f"{name}/mylib.lib") if f not in names]
+          if missing:
+              sys.exit(f"::error::the zip lacks {missing}")
+          EOF
 
       - name: Upload the result
         uses: actions/upload-artifact@v7
         with:
-          name: test-${{ matrix.target }}
+          name: test-${{ matrix.target }}-${{ matrix.runner }}
           path: ${{ steps.build.outputs.zip }}
           retention-days: 1
 

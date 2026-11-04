@@ -9,6 +9,7 @@
 # archive), and $OUT/build.log.
 
 . "$(dirname "$0")/lib.sh"
+require_os macos
 
 : "${MAXSDK:?}"
 [ -d "$MAXSDK/max-includes" ] && [ -d "$MAXSDK/msp-includes" ] \

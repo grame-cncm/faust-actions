@@ -13,6 +13,7 @@
 # $OUT/build.log.
 
 . "$(dirname "$0")/lib.sh"
+require_os macos
 
 : "${QTDIR:?}"
 [ -x "$QTDIR/bin/qmake" ] && [ -x "$QTDIR/bin/macdeployqt" ] \
