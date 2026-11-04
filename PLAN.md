@@ -844,7 +844,9 @@ GitHub's terms allow (§8, "Terms of use").
   `grame-cncm/faust-actions@c264159`, the action builds Faust in that
   repository's cache (about 2 minutes of the run) and returns a universal
   Max external; the log holds no line of the source.
-- **Versions.** Annotated tags: `v1.0.0` (2026-11-04), never moved, and
+- **Versions.** Annotated tags, never moved: `v1.0.0` (2026-11-04,
+  macOS), `v1.1.0` (2026-11-04, Linux and Windows added, `arch: auto`);
+  and
   `v1`, moved to each compatible `v1.x.y` (`git tag -fa v1 <commit>`,
   `git push -f origin v1`). An incompatible change of the inputs or
   outputs starts `v2`. Callers pin `@v1`, `@v1.x.y` or a commit.
@@ -941,5 +943,6 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
 9. The action for other repositories (§11): done, tagged `v1.0.0` / `v1`;
    to do, the Marketplace.
 10. Linux and Windows targets (§12): done for `lv2`, `juce`, `puredata`,
-    `supercollider`, `csound` on Linux and `juce` on Windows; to tag as
-    `v1.1.0`.
+    `supercollider`, `csound` on Linux and `juce` on Windows; tagged
+    `v1.1.0`, `v1` moved to it. faustservice-builds stays on `v1.0.0`
+    (its targets are macOS ones, unchanged).
