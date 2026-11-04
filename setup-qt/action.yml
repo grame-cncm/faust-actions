@@ -44,7 +44,7 @@ runs:
       env:
         QT_VERSION: ${{ inputs.version }}
         ROOT: ${{ steps.paths.outputs.root }}
-      run: '"$GITHUB_ACTION_PATH/../../../scripts/setup/qt.sh"'
+      run: '"$GITHUB_ACTION_PATH/../scripts/setup/qt.sh"'
 
     - name: Save Qt
       if: steps.cache.outputs.cache-hit != 'true'

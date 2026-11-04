@@ -1,4 +1,8 @@
-# faustosxservice — plan
+# faust-actions — plan
+
+This repository was first named `faustosxservice`; it was renamed when
+the action became usable by other repositories and, later, for other
+systems than macOS.
 
 Compile Faust programs into macOS binaries (Intel and Apple Silicon) with
 GitHub Actions. The first target is Max/MSP externals built with
@@ -55,12 +59,12 @@ the version.
 ## 3. Repository layout
 
 ```
-faustosxservice/
+faust-actions/
 ├── action.yml                 # the action: any target, from a .dsp file or the event (§11)
+├── setup-faust/              # standalone action: build or restore Faust
+├── setup-qt/                 # standalone action: install or restore Qt
+├── setup-juce/               # standalone action: fetch or restore JUCE
 ├── .github/
-│   ├── actions/setup-faust/   # standalone action: build or restore Faust
-│   ├── actions/setup-qt/      # standalone action: install or restore Qt
-│   ├── actions/setup-juce/    # standalone action: fetch or restore JUCE
 │   ├── workflows/<target>.yml # max, caqt, jaqt, juce, puredata, supercollider,
 │   │                          # csound: workflow_dispatch callers of action.yml
 │   └── workflows/test-action.yml  # action.yml on a .dsp file, every target
@@ -192,7 +196,7 @@ faustservice host. No size limit then, beyond faustservice's own 500 KB.
 `scripts/faustosx foo.dsp [options]` wraps the GitHub CLI:
 
 ```bash
-gh workflow run max.yml -R <owner>/faustosxservice -f name=foo -f dsp="$(cat foo.dsp)"
+gh workflow run max.yml -R grame-cncm/faust-actions -f name=foo -f dsp="$(cat foo.dsp)"
 ```
 
 It passes a unique `tag` input and finds its run by the run name
@@ -268,7 +272,7 @@ files.
    below).
 3. Create a unique `tag` (session key plus a random suffix) and start the
    run through the REST API:
-   `POST /repos/grame-cncm/faustosxservice/actions/workflows/max.yml/dispatches`
+   `POST /repos/grame-cncm/faust-actions/actions/workflows/max.yml/dispatches`
    with `{"ref": "main", "inputs": {...}}`. `curl` and `jq` are enough; `gh`
    is not needed in the image.
 4. Find the run: `GET .../actions/workflows/max.yml/runs?event=workflow_dispatch`,
@@ -313,7 +317,7 @@ In the faustservice Dockerfile:
 ### GitHub token
 
 - A fine-grained personal access token, owner `grame-cncm`, repository
-  `faustosxservice` only, permission *Actions: read and write* (start,
+  `faust-actions` only, permission *Actions: read and write* (start,
   read and cancel runs, download artifacts). It can do nothing else.
 - Given to the container at run time, never written into the image or a
   repository: `docker run --env-file /etc/faustservice/github.env ...`,
@@ -367,7 +371,7 @@ artifacts, which hold the sources next to the binary.
   the run name.
 - **Deleted after download.** Once `githubOSX` has the zip, it deletes the
   whole run with the same token (permission *Actions: read and write*):
-  `DELETE /repos/grame-cncm/faustosxservice/actions/runs/<run_id>`, which
+  `DELETE /repos/grame-cncm/faust-actions/actions/runs/<run_id>`, which
   removes the run, its log and its artifacts. Finer:
   `DELETE .../actions/artifacts/<id>` and `DELETE .../actions/runs/<id>/logs`.
   If the deletion fails, the 7-day retention of the artifacts and the log
@@ -460,7 +464,7 @@ artifacts, which hold the sources next to the binary.
   repository", nor to provide a service offering Actions for commercial
   purposes, nor as "part of a serverless application". faustservice is
   not commercial, but compiling its users' programs on demand is not the
-  development of faustosxservice itself: this is a grey area, the same on
+  development of faust-actions itself: this is a grey area, the same on
   a public or a private repository, and misuse may lead to disabled
   repositories. Before opening it to faustservice users, ask GitHub
   Support whether this use is acceptable, and keep `dockerOSX` as a
@@ -763,7 +767,7 @@ JUCE itself and cover AU, VST3 and Standalone at once.
 ## 11. The action, for other repositories
 
 `action.yml`, at the root, makes the whole repository a composite action
-that any repository can use (`uses: grame-cncm/faustosxservice@<ref>`),
+that any repository can use (`uses: grame-cncm/faust-actions@<ref>`),
 with its own runner minutes (free on a public repository) and caches.
 For a project compiling its own Faust programs, this is plainly the use
 GitHub's terms allow (§8, "Terms of use").
@@ -789,7 +793,7 @@ GitHub's terms allow (§8, "Terms of use").
   workspace, and `uses` takes no expression. `action.yml` therefore runs
   the cache steps itself and the shell code from `scripts/setup/*.sh`
   through `$GITHUB_ACTION_PATH`; the standalone `setup-*` actions call the
-  same scripts (`$GITHUB_ACTION_PATH/../../../scripts/setup`), so there is
+  same scripts (`$GITHUB_ACTION_PATH/../scripts/setup`), so there is
   one copy of each installation.
 - **Runner.** The action stops unless it runs on arm64 macOS
   (`runs-on: macos-15`): the universal builds rely on it (§10, "For every

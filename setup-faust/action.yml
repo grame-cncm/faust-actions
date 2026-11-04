@@ -49,7 +49,7 @@ runs:
       env:
         SHA: ${{ steps.rev.outputs.sha }}
         PREFIX: ${{ steps.rev.outputs.prefix }}
-      run: '"$GITHUB_ACTION_PATH/../../../scripts/setup/faust.sh"'
+      run: '"$GITHUB_ACTION_PATH/../scripts/setup/faust.sh"'
 
     - name: Save Faust
       if: steps.cache.outputs.cache-hit != 'true'

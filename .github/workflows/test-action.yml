@@ -51,3 +51,25 @@ jobs:
           name: test-${{ matrix.target }}
           path: ${{ steps.build.outputs.zip }}
           retention-days: 1
+
+  # The standalone setup actions, as another repository would use them
+  setup-actions:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./setup-faust
+      - uses: ./setup-qt
+        id: qt
+      - uses: ./setup-juce
+        id: juce
+      - name: Check
+        env:
+          QTDIR: ${{ steps.qt.outputs.qtdir }}
+          JUCEDIR: ${{ steps.juce.outputs.jucedir }}
+        run: |
+          set -euo pipefail
+          faust --version | head -n 2
+          command -v faust2caqt
+          "$QTDIR/bin/qmake" -query QT_VERSION
+          test -f "$JUCEDIR/CMakeLists.txt" && echo "JUCE in $JUCEDIR"

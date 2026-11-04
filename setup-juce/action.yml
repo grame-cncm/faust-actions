@@ -41,7 +41,7 @@ runs:
       env:
         JUCE_VERSION: ${{ inputs.version }}
         JUCEDIR: ${{ steps.paths.outputs.jucedir }}
-      run: '"$GITHUB_ACTION_PATH/../../../scripts/setup/juce.sh"'
+      run: '"$GITHUB_ACTION_PATH/../scripts/setup/juce.sh"'
 
     - name: Save JUCE
       if: steps.cache.outputs.cache-hit != 'true'

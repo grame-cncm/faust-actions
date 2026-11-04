@@ -1,4 +1,4 @@
-# faustosxservice
+# faust-actions
 
 Compile Faust programs into macOS binaries, universal (Intel and Apple
 Silicon) by default, with GitHub Actions:
@@ -17,7 +17,8 @@ It can be used in two ways: as an **action** in the workflows of any
 repository, or through the **workflows of this repository**, started by
 hand or by a service such as faustservice. See [PLAN.md](PLAN.md) for the
 design, the measurements and the next steps. MIT license, see
-[LICENSE](LICENSE).
+[LICENSE](LICENSE). This repository was first named `faustosxservice`;
+GitHub redirects the old address.
 
 ## Use the action in your repository
 
@@ -27,7 +28,7 @@ jobs:
     runs-on: macos-15            # an arm64 macOS runner is required
     steps:
       - uses: actions/checkout@v7
-      - uses: grame-cncm/faustosxservice@main
+      - uses: grame-cncm/faust-actions@main
         id: faust
         with:
           target: juce
@@ -74,8 +75,8 @@ The `setup-faust`, `setup-qt` and `setup-juce` actions can also be used
 alone, for instance to run another `faust2xxx` script:
 
 ```yaml
-- uses: grame-cncm/faustosxservice/.github/actions/setup-faust@main
-- uses: grame-cncm/faustosxservice/.github/actions/setup-qt@main
+- uses: grame-cncm/faust-actions/setup-faust@main
+- uses: grame-cncm/faust-actions/setup-qt@main
   id: qt
 ```
 
@@ -125,9 +126,9 @@ frameworks, which breaks the signature of the Qt applications:
 
 ```sh
 run=<run id>
-id=$(gh api repos/grame-cncm/faustosxservice/actions/runs/$run/artifacts \
+id=$(gh api repos/grame-cncm/faust-actions/actions/runs/$run/artifacts \
        --jq '.artifacts[] | select(.name == "osc-caqt.zip") | .id')
-gh api repos/grame-cncm/faustosxservice/actions/artifacts/$id/zip > osc-caqt.zip
+gh api repos/grame-cncm/faust-actions/actions/artifacts/$id/zip > osc-caqt.zip
 ditto -x -k osc-caqt.zip .
 ```
 

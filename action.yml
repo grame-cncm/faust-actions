@@ -1,4 +1,4 @@
-name: Faust macOS build
+name: Faust build
 description: >
   Compile a Faust program into macOS binaries (Intel and Apple Silicon):
   Max externals, CoreAudio/Qt or JACK/Qt applications, JUCE plugins, Pure
@@ -22,7 +22,7 @@ inputs:
     description: >
       "true" to take the source from the dsp or archive input of the
       workflow_dispatch event instead of a file (used by the workflows of
-      grame-cncm/faustosxservice)
+      grame-cncm/faust-actions)
     default: "false"
   name:
     description: "Program name, without .dsp (default: the name of the dsp file)"
