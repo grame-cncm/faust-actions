@@ -520,6 +520,21 @@ version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
   `-midi -nvoices 4`, `-preset auto -me -double`, the refusals, and the
   zip extracted with `ditto -x -k` keeps the framework symlinks and a
   valid signature. Not tested: `-effect auto`, running the application.
+- **On GitHub** (2026-11-04, Qt 6.8.3): `osc` and `withlib` (archive,
+  `-midi -nvoices 4`) succeed in about 3 minutes, of which 1 min 45 to
+  install Qt the first time and 50 s to compile; all 18 Mach-O files are
+  universal, `QtCore` has `minos 12.0`, the application takes 54 MB,
+  22.6 MB zipped. The Qt cache takes 1.14 GB of the 10 GB per
+  repository; installing only the modules `faust2caqt` needs
+  (`aqt install-qt ... --archives qtbase qtsvg`) would shrink it.
+- **Download.** `gh run download` unpacks the zip without the symbolic
+  links of the frameworks (`Versions/Current`, and the top-level links
+  of each framework), so `codesign --verify --deep --strict` then fails
+  on `QtWidgets.framework`. The zip itself is correct: downloaded with
+  `GET .../actions/artifacts/<id>/zip` (what `githubOSX` does) and
+  unpacked with `ditto -x -k`, the signature is valid. Max externals hold
+  no symlinks and are not affected. The `faustosx` client must download
+  the raw zip for applications.
 
 ## 10. Milestones
 
@@ -533,6 +548,7 @@ version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
    `scripts/faustosx` client.
 5. faustservice integration (§7).
 6. Signing and notarization, if the binaries are to be distributed.
-7. `faust2caqt` (§9): workflow written and tested locally; to check on
-   GitHub with Qt 6.8.3, then on an Intel Mac.
+7. `faust2caqt` (§9): done, universal applications built on GitHub with
+   Qt 6.8.3. To do: run them on an Apple Silicon and an Intel Mac, test
+   `-effect auto`, add `-arch` to `faust2caqt` in Faust.
 8. Further targets (`faust2au`, `faust2vst`, `faust2juce`…).

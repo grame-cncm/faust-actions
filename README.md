@@ -60,7 +60,19 @@ xattr -dr com.apple.quarantine "osc~.mxo"
 ```sh
 gh workflow run caqt.yml -f name=osc -f dsp="$(cat tests/osc.dsp)"
 gh run watch
-gh run download --name osc-caqt.zip
+```
+
+Do not fetch the application with `gh run download`: it unpacks the zip
+without the symbolic links of the Qt frameworks, which breaks their
+signature. Download the zip as it is, then unpack it with `ditto`
+(Finder's Archive Utility also keeps the links):
+
+```sh
+run=<run id>
+id=$(gh api repos/grame-cncm/faustosxservice/actions/runs/$run/artifacts \
+       --jq '.artifacts[] | select(.name == "osc-caqt.zip") | .id')
+gh api repos/grame-cncm/faustosxservice/actions/artifacts/$id/zip > osc-caqt.zip
+ditto -x -k osc-caqt.zip .
 ```
 
 Same inputs as `max.yml`, plus `qt` (Qt version, default `6.8.3`, which
