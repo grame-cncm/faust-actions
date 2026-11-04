@@ -17,9 +17,11 @@ returns the binary as a downloadable zip.
 - **Max SDK.** `faust2max6` reads the `MAXSDK` variable and expects
   `$MAXSDK/max-includes` and `$MAXSDK/msp-includes` (default:
   `/usr/local/include/c74support/`, set in `faustpath`). Cloning
-  [Cycling74/max-sdk](https://github.com/Cycling74/max-sdk) with
-  `--recursive` gives `source/max-sdk-base/c74support`, which is the
-  directory `MAXSDK` must point to.
+  [Cycling74/max-sdk-base](https://github.com/Cycling74/max-sdk-base)
+  gives `c74support/` at its root, which is the directory `MAXSDK` must
+  point to. ([Cycling74/max-sdk](https://github.com/Cycling74/max-sdk)
+  itself now holds only the examples: it no longer includes
+  `max-sdk-base` as a submodule.)
 - **Signing.** `faust2max6` already ad-hoc signs the bundle
   (`codesign --sign - --force`) after its last copy, so the external
   loads on Apple Silicon without further work on the machine that
@@ -77,7 +79,7 @@ a single `.dsp`, not for local `import`s or soundfiles (see §6).
 
 1. Checkout this repository.
 2. Restore or build Faust (§2).
-3. `git clone --depth 1 --recursive https://github.com/Cycling74/max-sdk`
+3. `git clone --depth 1 https://github.com/Cycling74/max-sdk-base`
    (cacheable as well).
 4. Validate `name` (`^[A-Za-z_][A-Za-z0-9_]*$`) and `options` against an
    allow-list of `faust2max6` options. Reject `-native` / `-opt native`:
@@ -93,7 +95,7 @@ a single `.dsp`, not for local `import`s or soundfiles (see §6).
        NAME: ${{ inputs.name }}
        OPTIONS: ${{ inputs.options }}
        ARCH: ${{ inputs.arch }}
-       MAXSDK: ${{ github.workspace }}/max-sdk/source/max-sdk-base/c74support
+       MAXSDK: ${{ runner.temp }}/max-sdk-base/c74support
      run: scripts/build-max.sh
    ```
 

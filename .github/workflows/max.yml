@@ -42,8 +42,12 @@ jobs:
       - name: Set up Faust
         uses: ./.github/actions/setup-faust
 
+      # Cycling74/max-sdk holds the examples only; the headers and the
+      # MaxAudioAPI framework faust2max6 needs are in max-sdk-base/c74support.
       - name: Get the Max SDK
-        run: git clone -q --depth 1 --recursive --shallow-submodules https://github.com/Cycling74/max-sdk "$RUNNER_TEMP/max-sdk"
+        run: |
+          git clone -q --depth 1 https://github.com/Cycling74/max-sdk-base "$RUNNER_TEMP/max-sdk-base"
+          echo "max-sdk-base commit: $(git -C "$RUNNER_TEMP/max-sdk-base" rev-parse --short HEAD)"
 
       # Inputs reach the script through the environment only: expanding them
       # inside the script text would let the Faust source run shell commands.
@@ -53,7 +57,7 @@ jobs:
           NAME: ${{ inputs.name }}
           OPTIONS: ${{ inputs.options }}
           ARCH: ${{ inputs.arch }}
-          MAXSDK: ${{ runner.temp }}/max-sdk/source/max-sdk-base/c74support
+          MAXSDK: ${{ runner.temp }}/max-sdk-base/c74support
           OUT: ${{ runner.temp }}/out
         run: scripts/build-max.sh
 

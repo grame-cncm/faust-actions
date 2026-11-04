@@ -43,7 +43,7 @@ xattr -dr com.apple.quarantine "osc~.mxo"
   the first run after `master-dev` moves rebuilds it. The `-arch` option of
   `faust2max6` is not in a numbered Faust release yet.
 - `.github/workflows/max.yml` clones the
-  [Max SDK](https://github.com/Cycling74/max-sdk) and runs
+  Max SDK headers ([max-sdk-base](https://github.com/Cycling74/max-sdk-base)) and runs
   `scripts/build-max.sh` on a `macos-15` (arm64) runner; `faust2max6
   -arch universal` cross-compiles the x86_64 slice.
 
@@ -51,7 +51,7 @@ xattr -dr com.apple.quarantine "osc~.mxo"
 
 ```sh
 DSP="$(cat tests/osc.dsp)" NAME=osc ARCH=universal OPTIONS="" \
-MAXSDK=/path/to/max-sdk/source/max-sdk-base/c74support OUT=/tmp/out \
+MAXSDK=/path/to/max-sdk-base/c74support OUT=/tmp/out \
 scripts/build-max.sh
 ```
 
