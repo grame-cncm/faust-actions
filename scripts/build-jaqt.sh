@@ -34,6 +34,11 @@ FILEARGS=""
 check_options
 
 prepare_sources
+# faust2jaqt passes `pkg-config --cflags --libs jack` to qmake as LIBS, so
+# the include path only reaches the linker; it appends its own flags to
+# CXXFLAGS, which qmake gets as QMAKE_CXXFLAGS. Needed when JACK is not in
+# a default include directory (Homebrew's /opt/homebrew/include).
+export CXXFLAGS="$(pkg-config --cflags jack)"
 echo "qt: $QTDIR (Qt $(qmake -query QT_VERSION)), jack $(pkg-config --modversion jack) ($(pkg-config --variable=libdir jack))" >> "$OUT/build.log"
 # -deploy (not listed by -help) runs macdeployqt; without it the
 # application would load Qt from the runner's installation.
