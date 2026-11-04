@@ -1,0 +1,88 @@
+name: JUCE plugins
+
+# One run compiles one Faust program with faust2juce and the CMake project
+# it writes, and returns the AU, VST3 and Standalone builds as a zip
+# artifact named <name>-juce.zip.
+run-name: juce ${{ inputs.name }} ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dsp:
+        description: Faust source code (or use archive)
+        default: ""
+        type: string
+      archive:
+        description: Instead of dsp, base64 of a tar.gz holding <name>.dsp and the files it imports, without directories
+        default: ""
+        type: string
+      name:
+        description: Program name, without .dsp
+        default: foo
+        type: string
+      options:
+        description: Extra faust2juce options (for instance "-midi -nvoices 8")
+        default: ""
+        type: string
+      arch:
+        description: Architecture of the plugins
+        default: universal
+        type: choice
+        options: [universal, arm64, x86_64]
+      juce:
+        description: JUCE version (a tag of juce-framework/JUCE)
+        default: 8.0.10
+        type: string
+      tag:
+        description: Free text added to the run name, so a client can find its run
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  juce:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Faust
+        uses: ./.github/actions/setup-faust
+
+      - name: Set up JUCE
+        id: juce
+        uses: ./.github/actions/setup-juce
+        with:
+          version: ${{ inputs.juce }}
+
+      # Inputs reach the script through the environment only: expanding them
+      # inside the script text would let the Faust source run shell commands.
+      - name: Compile
+        env:
+          DSP: ${{ inputs.dsp }}
+          ARCHIVE: ${{ inputs.archive }}
+          NAME: ${{ inputs.name }}
+          OPTIONS: ${{ inputs.options }}
+          ARCH: ${{ inputs.arch }}
+          JUCEDIR: ${{ steps.juce.outputs.jucedir }}
+          OUT: ${{ runner.temp }}/out
+        run: scripts/build-juce.sh
+
+      - name: Upload the plugins
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/out/${{ inputs.name }}-juce.zip
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.name }}-log
+          path: ${{ runner.temp }}/out/build.log
+          retention-days: 7
+          if-no-files-found: ignore

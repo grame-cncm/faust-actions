@@ -86,6 +86,23 @@ the quarantine attribute the same way:
 xattr -dr com.apple.quarantine osc.app
 ```
 
+## Compile JUCE plugins (AU, VST3, Standalone)
+
+```sh
+gh workflow run juce.yml -f name=osc -f dsp="$(cat tests/osc.dsp)"
+gh run watch
+```
+
+Same inputs as `max.yml`, plus `juce` (JUCE version, default `8.0.10`).
+`options` takes `faust2juce` options from the allow-list in
+`scripts/build-juce.sh` (`-midi`, `-nvoices <n>`, `-osc`, `-jsynth`,
+`-effect <file.dsp|auto>`, `-presets <file.json>`...); the files named
+by `-effect` and `-presets` go in the `archive`. The `<name>-juce.zip`
+artifact holds `<name>/<name>.component` (AU), `<name>.vst3` and
+`<name>.app` (Standalone), universal by default. Download it as the raw
+zip, as for `caqt` (above), and copy the plugins to
+`~/Library/Audio/Plug-Ins/Components` and `~/Library/Audio/Plug-Ins/VST3`.
+
 ## How it works
 
 - `.github/actions/setup-faust` builds the Faust compiler from

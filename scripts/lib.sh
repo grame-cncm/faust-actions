@@ -44,9 +44,11 @@ esac
 #   - the options listed in FLAGS (no value),
 #   - the options listed in VALUED, followed by a number,
 #   - the option=value pairs listed in LITERAL (the option, then exactly
-#     that value).
-# FLAGS, VALUED and LITERAL are space-separated, with a leading and a
-# trailing space.
+#     that value),
+#   - the options listed in FILEARGS, followed by a plain file name (no
+#     directory), meant for a file of the archive or for 'auto'.
+# FLAGS, VALUED, LITERAL and FILEARGS are space-separated, with a leading
+# and a trailing space.
 check_options() {
     local i=0 o
     OPTS=()
@@ -63,6 +65,10 @@ check_options() {
             i=$((i + 1))
             [ $i -lt ${#OPTS[@]} ] && [[ "$LITERAL" == *" $o=${OPTS[$i]} "* ]] \
                 || fail "option $o only accepts: $(printf '%s\n' $LITERAL | sed -n "s/^$o=//p" | tr '\n' ' ')"
+        elif [[ "${FILEARGS:-}" == *" $o "* ]]; then
+            i=$((i + 1))
+            [ $i -lt ${#OPTS[@]} ] && [[ "${OPTS[$i]}" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]] \
+                || fail "option $o needs a file name without directory (a file of the archive)"
         else
             fail "option '$o' is not allowed"
         fi
@@ -100,8 +106,8 @@ unpack_archive() {
         [[ "$name" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]] \
             || fail "archive entry '$name': letters, digits, '.', '_' and '-' only, not starting with '.'"
         case "${name##*.}" in
-            dsp|lib|wav|aif|aiff|flac|ogg|mp3) ;;
-            *) fail "archive entry '$name': only .dsp, .lib and soundfiles (.wav .aif .aiff .flac .ogg .mp3) are accepted" ;;
+            dsp|lib|json|wav|aif|aiff|flac|ogg|mp3) ;;
+            *) fail "archive entry '$name': only .dsp, .lib, .json and soundfiles (.wav .aif .aiff .flac .ogg .mp3) are accepted" ;;
         esac
     done <<< "$names"
 

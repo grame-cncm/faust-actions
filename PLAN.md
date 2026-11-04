@@ -59,12 +59,15 @@ faustosxservice/
 ├── .github/
 │   ├── actions/setup-faust/   # composite action: build or restore Faust
 │   ├── actions/setup-qt/      # composite action: install or restore Qt
+│   ├── actions/setup-juce/    # composite action: fetch or restore JUCE
 │   ├── workflows/max.yml      # faust2max6 job
-│   └── workflows/caqt.yml     # faust2caqt job (§9)
+│   ├── workflows/caqt.yml     # faust2caqt job (§9)
+│   └── workflows/juce.yml     # faust2juce plugins job (§10)
 ├── scripts/
 │   ├── lib.sh                 # shared: inputs, archive, logs, checks, zip
 │   ├── build-max.sh           # runs faust2max6, packages the result
 │   ├── build-caqt.sh          # runs faust2caqt, packages the result
+│   ├── build-juce.sh          # runs faust2juce and CMake, packages the plugins
 │   └── faustosx               # client: send a .dsp, wait, download (to do)
 ├── tests/
 │   ├── osc.dsp                # smoke-test program
@@ -619,6 +622,28 @@ build with Projucer. This repository can return the built plugins:
 - `-standalone` produces a `.jucer` project only, which needs Projucer:
   refused at first, the Standalone format of the plugin build gives an
   application anyway.
+
+Implemented as `juce.yml` and `scripts/build-juce.sh`:
+
+- the `setup-juce` action clones the JUCE tag given by the `juce` input
+  (default 8.0.10) and caches it;
+- `build-juce.sh` runs `faust2juce`, moves the project out of the zipped
+  folder (its `CMakeLists.txt` points to the runner's Faust include
+  directory and could not be rebuilt elsewhere), configures it with
+  `-DJUCE_DIR` and `CMAKE_OSX_ARCHITECTURES`, builds it, then signs each
+  bundle ad hoc (JUCE leaves only the linker's signature of the binary),
+  checks the slices of every Mach-O file and the signature;
+- options: `-midi`, `-osc` (JUCE's own OSC module, no `libOSCFaust`),
+  `-jsynth`, `-nvoices <n>`, `-disable-splash-screen`, the Faust options,
+  and `-effect` / `-presets` followed by a file of the archive (or
+  `auto`): `lib.sh` now accepts `.json` files in the archive and options
+  whose value is a plain file name (`FILEARGS`). Refused: `-standalone`,
+  `-llvm`, `-magic` (needs foleys_gui_magic), `-vst2sdkdir`,
+  `-jucemodulesdir`, and `-soundfile` until it is tested with the CMake
+  build;
+- tested locally up to CMake only: building downloaded JUCE code here
+  was refused by the local agent policy, so the first full build is the
+  GitHub run.
 
 ### For every new target
 

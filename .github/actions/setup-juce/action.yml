@@ -1,0 +1,57 @@
+name: Set up JUCE
+description: >
+  Fetch a JUCE release from github.com/juce-framework/JUCE, or restore it
+  from the cache, and give its path.
+
+inputs:
+  version:
+    description: JUCE tag (8.0.10 is the default of the CMake project faust2juce writes)
+    default: 8.0.10
+
+outputs:
+  jucedir:
+    description: JUCE checkout
+    value: ${{ steps.paths.outputs.jucedir }}
+
+runs:
+  using: composite
+  steps:
+    - name: JUCE paths
+      id: paths
+      shell: bash
+      env:
+        JUCE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        [[ "$JUCE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+)?$ ]] || { echo "::error::invalid JUCE version '$JUCE_VERSION'"; exit 1; }
+        echo "jucedir=$RUNNER_TEMP/JUCE" >> "$GITHUB_OUTPUT"
+
+    # Restore and save are separate steps, as for Faust: actions/cache saves
+    # only when the whole job succeeds.
+    - name: Restore JUCE
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.paths.outputs.jucedir }}
+        key: juce-${{ inputs.version }}
+
+    - name: Fetch JUCE
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        JUCE_VERSION: ${{ inputs.version }}
+        JUCEDIR: ${{ steps.paths.outputs.jucedir }}
+      run: git clone -q --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE "$JUCEDIR"
+
+    - name: Save JUCE
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.paths.outputs.jucedir }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+
+    - name: Check JUCE
+      shell: bash
+      env:
+        JUCEDIR: ${{ steps.paths.outputs.jucedir }}
+      run: echo "JUCE $(git -C "$JUCEDIR" describe --tags) in $JUCEDIR"
