@@ -77,9 +77,56 @@ faustosxservice/
 | `name` | program name, without `.dsp` | `foo` |
 | `options` | extra `faust2max6` options (`-mc`, `-nvoices 8`, `-soundfile`, `-double`…) | empty |
 | `arch` | `universal`, `arm64` or `x86_64` | `universal` |
+| `archive` | instead of `dsp`: base64 of a `tar.gz` holding `<name>.dsp` and the files it imports | empty |
+| `tag` | free text added to the run name, so a client can find its run | empty |
 
-`workflow_dispatch` inputs are limited to about 65 KB in total: enough for
-a single `.dsp`, not for local `import`s or soundfiles (see §6).
+Exactly one of `dsp` and `archive` is given. `workflow_dispatch` inputs
+are limited to 65,535 characters in total: enough for a single `.dsp`, or
+for an archive of about 48 KB once compressed, which holds a program and
+its `.lib` files but rarely soundfiles (see "Several files" below).
+
+### Several files: the `archive` input
+
+A program may import local `.lib` files, other `.dsp` files
+(`component("x.dsp")`), or read soundfiles (`-soundfile`). faustservice
+accepts such programs as a zip, of at most 500 KB once extracted. The
+`archive` input carries these files:
+
+- the client packs them flat, without directories:
+  `tar -cf - prog.dsp mylib.lib | gzip -9 | base64` (`base64 -w0` with
+  GNU coreutils). Compress with a separate `gzip` rather than `tar -z`:
+  writing to a pipe, bsdtar (macOS) pads its output with zeros to
+  10,240 bytes, so a 618-byte archive takes 13,656 characters of input
+  instead of about 830. `COPYFILE_DISABLE=1` keeps the macOS `tar` from
+  storing extended attributes, which is cleaner but not required;
+- `build-max.sh` decodes the input, decompresses at most 600 KB (more is
+  refused, which also stops a compression bomb), lists the entries before
+  extracting anything, and refuses the whole archive if one entry is not
+  a regular file, has a name with `/`, starting with `.` or outside
+  `[A-Za-z0-9._-]`, or an extension other than `.dsp`, `.lib`, `.wav`,
+  `.aif`, `.aiff`, `.flac`, `.ogg`, `.mp3`. It then extracts with
+  `--no-mac-metadata --no-xattrs --no-acls --no-fflags`: the macOS `tar`
+  hides AppleDouble `._*` entries from its listing and, by default, turns
+  them into extended attributes of the matching file (`--no-xattrs` alone
+  does not prevent it);
+- `<name>.dsp` must be one of the entries: it is the program given to
+  `faust2max6`; the other files sit next to it, where Faust looks for
+  imports and soundfiles;
+- the zip returned holds the same `<name>/` folder as with `dsp`, so the
+  imported files come back with the external.
+
+`faust -e`, which expands a program and all its imports into a single
+`.dsp`, was ruled out: it also expands the library code and the tables.
+Over the 265 programs of the Faust `examples/` directory, half are larger
+than 38 KB once expanded, 120 are larger than 60 KB, and the largest
+(`physicalModeling/faust-stk/piano1.dsp`) reaches 42 MB, whereas the
+sources they come from are a few KB.
+
+When a program does not fit, the next step is to pass a URL instead of
+the files: faustservice would serve the session as `<key>/source.zip`
+(a new endpoint; today only `<key>/user_code.dsp`, the main file, is
+served), and the workflow would download it, accepting only URLs of the
+faustservice host. No size limit then, beyond faustservice's own 500 KB.
 
 ### Steps
 
@@ -148,10 +195,9 @@ quarantine attribute from the downloaded `.mxo` (§8).
 
 ## 6. Later extensions
 
-- **Several files.** For programs with local `import`s or soundfiles, add a
-  `push` trigger on a `dsp/` directory (one subdirectory per program), or a
-  `repository_dispatch` event whose payload carries a URL to a zip. The
-  build script is unchanged.
+- **Larger programs.** Beyond the `archive` input (§4), a URL input
+  pointing to the session on faustservice (§4, "Several files"), or a
+  `push` trigger on a `dsp/` directory (one subdirectory per program).
 - **Other targets.** Same structure, one job per architecture script:
   `faust2caqt`, `faust2au`, `faust2vst`, `faust2juce`… A matrix input
   `target` selects the script. Each target needs its own SDK (JUCE, Qt,
@@ -270,12 +316,12 @@ In the faustservice Dockerfile:
 
 ### Changes in this repository
 
-- An `archive` input: a `tar.gz` of the session's `.dsp` and `.lib`
-  files, base64-encoded. `build-max.sh` decodes it into the build
-  directory, refuses paths with `/` or `..` and anything that is not
-  `.dsp` or `.lib`, and requires exactly one `.dsp`, named after `name`.
-  All inputs together are limited to about 64 KB: `githubOSX` checks the
-  size first and fails with a clear message beyond it.
+- The `archive` input (§4, "Several files"): implemented. `githubOSX`
+  packs the session's files flat (`tar -cf - * | gzip -9 | base64 -w0`, run in the
+  session's source directory, leaving out `binary.zip` and other outputs),
+  checks that all inputs together stay under 65,535 characters, and fails
+  with a clear message beyond. Sessions that do not fit wait for the URL
+  input.
 - The options allow-list of `build-max.sh` must accept every option that
   `faustOptions.cpp` lets through, or programs that compile today with
   `dockerOSX` would be refused. Compare the two lists and align them.
