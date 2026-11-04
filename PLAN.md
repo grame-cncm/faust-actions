@@ -69,7 +69,7 @@ faust-actions/
 ├── scripts/
 │   ├── lib.sh                 # shared: sources, options, logs, checks, zip
 │   ├── build-<target>.sh      # runs faust2xxx, checks and packages the result
-│   ├── setup/*.sh             # installs Faust, Qt, JUCE and the SDK headers
+│   ├── setup/*.sh             # installs Faust (faust-windows.sh on Windows), Qt, JUCE, SDK headers
 │   └── faustosx               # client: send a .dsp, wait, download (to do)
 ├── tests/
 │   ├── osc.dsp                # smoke-test program
@@ -852,7 +852,76 @@ GitHub's terms allow (§8, "Terms of use").
   `branding` is set); signing and notarization as an option, with the
   caller's secrets.
 
-## 12. Milestones
+## 12. Linux and Windows
+
+Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
+
+| system | runner | targets |
+| :--- | :--- | :--- |
+| Linux x86_64, arm64 | `ubuntu-24.04`, `ubuntu-24.04-arm` | `lv2` (new), `juce` (VST3, Standalone), `puredata`, `supercollider`, `csound` |
+| Windows x64 | `windows-2025` | `juce` (VST3, Standalone `.exe`) |
+
+- **Runner check.** The first step of the action knows on which systems
+  each target builds and stops with a message naming the right
+  `runs-on`. macOS still needs arm64; Linux takes x86_64 and arm64,
+  Windows x64.
+- **Architecture.** The `faust2xxx` scripts build for the machine they
+  run on: on Linux and Windows the result has the runner's
+  architecture, and arm64 needs `ubuntu-24.04-arm`. `arch` defaults to
+  `auto` (universal on macOS, native elsewhere), which keeps the former
+  macOS behaviour; a new `arch` output gives what was built.
+- **Faust** is built per system and cached (`faust-<os>-<arch>-<commit>`):
+  with `make` on Linux (after `apt install libmicrohttpd-dev`, for the
+  HTTP library of the `regular` targets), with CMake and Visual Studio
+  on Windows (`scripts/setup/faust-windows.sh`, `regular` backends and
+  targets as `make` uses them, without the OSC and HTTP libraries, which
+  no Windows target needs). Faust's CMake `install` also installs the
+  `faust2xxx` scripts, which run in Git Bash. First build: about 3 min 30
+  on Linux, 8 minutes on Windows.
+- **Linux packages,** installed by `apt` for each target: `lv2-dev` and
+  `libboost-dev` (`lv2.cpp` uses `boost/circular_buffer.hpp`),
+  `puredata-dev` (`/usr/include/pd`, which `faustpath` finds),
+  `supercollider-dev` (`/usr/include/SuperCollider`), `libcsound64-dev`
+  (`/usr/include/csound`), and JUCE's X11, ALSA, JACK, freetype and GL
+  development packages (no curl or webkit: the project sets
+  `JUCE_USE_CURL=0` and `JUCE_WEB_BROWSER=0`).
+- **`lib.sh`** detects the system (`OS`), converts the Windows paths the
+  runner gives (`D:\a\...`) with `cygpath`, checks ELF and PE binaries
+  with `file(1)` (the machine type must match `arch`) where macOS uses
+  `lipo`, extracts archives with GNU tar's options when bsdtar is absent
+  (GNU tar restores no extended attributes by default), zips with `zip
+  -y` on Linux and `7z` on Windows, and signs and verifies with
+  `codesign` on macOS only (`adhoc_sign`, `verify_signature`).
+- **`lv2`.** `faust2lv2` looks for `lv2.cpp` and `lv2ui.cpp` in
+  `FAUSTLIB` and for the headers in `FAUSTINC`, by default in
+  `/usr/local`: `build-lv2.sh` sets them to `faust -archdir` and
+  `faust -includedir`/faust (the `include/faust` directory itself, where
+  it checks `gui/QTUI.h`). Options: `-nvoices`, `-dyn-manifest`,
+  `-nometa`, `-nomidicc`, `-notuning`, `-novoicectrls`, Faust options;
+  the Qt GUI (`-gui`, `-qt5`) is not set up yet.
+- **`juce` on Windows.** CMake with its default generator, Visual Studio
+  (MSBuild and MSVC; `-A x64`), the same commands as elsewhere. Two
+  Windows-only fixes: `faust2juce` writes the Faust include directory
+  into the CMake project with `sed`, which turns the backslashes of a
+  Windows path into escape sequences, so `build-juce.sh` rewrites that
+  line with a `D:/...` path; and `faust2juce` names the plugin subtype
+  with `shasum`, missing from Git Bash, so a `shasum` calling `sha1sum`
+  (same output) is put on the `PATH`. Ninja would need the Visual Studio
+  environment (`vcvarsall.bat`) loaded first, and MinGW or clang are only
+  partly supported by JUCE: MSVC is kept.
+- **Tests.** `test-action.yml` now runs 15 target and runner pairs plus
+  the standalone setup actions: all pass (run `41848501917`), each result
+  with the expected architecture (`x86_64`, or `arm64` on the arm runner)
+  and the sources in the zip. Durations with Faust cached: 20 to 50 s on
+  Linux for `lv2`, `puredata`, `supercollider`, `csound`, about 5 minutes
+  for `juce` on Linux and 8 to 9 minutes on Windows (JUCE is compiled in
+  every run). Not tested: loading the results in a host on Linux and
+  Windows.
+- **Next.** `jaqt` on Linux (Qt and JACK from `apt`), the LV2 Qt GUI,
+  Windows targets beyond JUCE (`faust2w64puredata`, `faust2w64vst`
+  cross-compile with MinGW, or native builds), Windows arm64 runners.
+
+## 13. Milestones
 
 1. Done: repository, `max.yml` with Faust built from `master-dev`, manual
    `workflow_dispatch` on `tests/osc.dsp`; `lipo -archs` lists
@@ -871,3 +940,6 @@ GitHub's terms allow (§8, "Terms of use").
 8. The other macOS targets of faustservice, in the order of §10.
 9. The action for other repositories (§11): done, tagged `v1.0.0` / `v1`;
    to do, the Marketplace.
+10. Linux and Windows targets (§12): done for `lv2`, `juce`, `puredata`,
+    `supercollider`, `csound` on Linux and `juce` on Windows; to tag as
+    `v1.1.0`.
