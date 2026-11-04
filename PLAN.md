@@ -844,7 +844,7 @@ GitHub's terms allow (§8, "Terms of use").
   runner's system and stops otherwise, naming the right `runs-on`: arm64
   macOS (`macos-15`) for the macOS targets, whose universal builds rely
   on it (§10, "For every new target"); Linux x86_64 or arm64 and Windows
-  x64 for the targets of §12.
+  x64 for the targets of §12 (`max` builds on macOS and Windows).
 - **Paths.** Each build goes to `$RUNNER_TEMP/faustosx/<target>-<name>`,
   so a job can build several targets. The Faust cache key holds the
   system and the architecture (`faust-<os>-<arch>-<commit>`, since §12),
@@ -877,7 +877,7 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
 | system | runner | targets |
 | :--- | :--- | :--- |
 | Linux x86_64, arm64 | `ubuntu-24.04`, `ubuntu-24.04-arm` | `lv2` (new), `juce` (VST3, Standalone), `puredata`, `supercollider`, `csound` |
-| Windows x64 | `windows-2025` | `juce` (VST3, Standalone `.exe`) |
+| Windows x64 | `windows-2025` | `juce` (VST3, Standalone `.exe`), `max` (`.mxe64`) |
 
 - **Runner check.** The first step of the action knows on which systems
   each target builds and stops with a message naming the right
@@ -927,6 +927,41 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
   (same output) is put on the `PATH`. Ninja would need the Visual Studio
   environment (`vcvarsall.bat`) loaded first, and MinGW or clang are only
   partly supported by JUCE: MSVC is kept.
+- **`max` on Windows** (added after `v1.1.0`). `faust2w64max6` was
+  written to cross-compile on Linux or macOS with MinGW-w64; the
+  runner's own MinGW-w64 (`C:\mingw64`, g++ 15.2) runs it natively.
+  `build-max.sh` runs a copy of the script with fixes, and fills what
+  the runner lacks, each only when needed:
+  - `MAXSDK`: the script sets it to `/usr/local/include/c74support`
+    whatever the environment says; the copy keeps the value of
+    `faustpath`, as `faust2max6` does;
+  - `TMP`: the script names its working directory `TMP`, a relative
+    path, while the Windows compiler creates its temporary files in
+    `$TMP`: after its `cd`, g++ fails with "Cannot create temporary
+    file". The copy renames the variable;
+  - `dllwrap`, with which the script links the DLL, is not in the
+    runner's MinGW (deprecated, missing from recent distributions): a
+    stand-in on the `PATH` links with `g++ -shared`, the `.def` file
+    giving the exported `main`;
+  - the OSC headers: `faust -i` inlines every header the architecture
+    names, `OSCUI.h` and the `faust/osc` headers included, which
+    Faust's CMake installs with the OSC library only, left out of the
+    Windows build: they are fetched from `raw.githubusercontent.com` at
+    the commit Faust was built from.
+  The three script fixes and the header install belong in Faust
+  (`faust2w64max6`, `faust2w32max6`, `build/CMakeLists.txt`, which
+  already installs `HTTPDControler.h` for the same reason). Options:
+  `-mc`, `-nopost` and the Faust options; the script knows no `-midi`,
+  `-nvoices`, `-soundfile` or `-nopatch` and passes them to `faust`, so
+  they are refused. The external is compiled in double, exports `main`
+  (checked with `objdump -p`), and imports only `MaxAPI.dll`,
+  `MaxAudio.dll`, `KERNEL32.dll` and the UCRT (`api-ms-win-crt-*`, part
+  of Windows 10 and later): the MinGW runtime is linked statically. It
+  is not stripped (5.9 MB for `withlib`): the script leaves `strip` out,
+  after a Cycling '74 forum thread on "Error 998" when loading externals
+  built this way. Tested on GitHub (run
+  `41918241164`, all 17 jobs pass); not tested: loading it in Max on
+  Windows.
 - **Tests.** `test-action.yml` now runs 15 target and runner pairs plus
   the standalone setup actions: all pass (run `41848501917`), each result
   with the expected architecture (`x86_64`, or `arm64` on the arm runner)
@@ -936,8 +971,9 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
   every run). Not tested: loading the results in a host on Linux and
   Windows.
 - **Next.** `jaqt` on Linux (Qt and JACK from `apt`), the LV2 Qt GUI,
-  Windows targets beyond JUCE (`faust2w64puredata`, `faust2w64vst`
-  cross-compile with MinGW, or native builds), Windows arm64 runners.
+  other Windows targets (`faust2w64puredata` cross-compiles with MinGW
+  as `faust2w64max6` does; `faust2w64vst` needs the VST2 SDK), Windows
+  arm64 runners.
 
 ## 13. Milestones
 
@@ -964,4 +1000,4 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
 10. Linux and Windows targets (§12): done for `lv2`, `juce`, `puredata`,
     `supercollider`, `csound` on Linux and `juce` on Windows; tagged
     `v1.1.0`, `v1` moved to it. faustservice-builds stays on `v1.0.0`
-    (its targets are macOS ones, unchanged).
+    (its targets are macOS ones, unchanged). Then `max` on Windows.

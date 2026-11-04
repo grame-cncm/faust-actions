@@ -5,7 +5,7 @@ GitHub Actions:
 
 | target | script | systems (runner) | result |
 | :--- | :--- | :--- | :--- |
-| `max` | `faust2max6` | macOS | Max external `<name>~.mxo`, help patch, `ui.js` |
+| `max` | `faust2max6`, `faust2w64max6` | macOS, Windows | Max external `<name>~.mxo` or `<name>~.mxe64`, help patch, `ui.js` |
 | `caqt` | `faust2caqt` | macOS | CoreAudio + Qt application `<name>.app`, Qt included |
 | `jaqt` | `faust2jaqt` | macOS, **Apple Silicon only** | JACK + Qt application `<name>.app`, needs JACK on the user's machine |
 | `juce` | `faust2juce` | macOS, Linux, Windows | JUCE plugins: `<name>.component` (AU, macOS), `<name>.vst3`, and the Standalone (`<name>.app`, `<name>`, `<name>.exe`) |
@@ -114,8 +114,10 @@ jobs:
 The action stops with a clear message when the target does not exist on
 the runner's system. On Linux it installs the packages the target needs
 with `apt`; on Windows, Faust is built with CMake and Visual Studio (about
-8 minutes the first time, then cached), and JUCE with Visual Studio
-(MSVC).
+8 minutes the first time, then cached), JUCE with Visual Studio (MSVC),
+and Max externals with the runner's MinGW-w64 (`faust2w64max6`, which
+knows `-mc` and `-nopost` but not `-midi`, `-nvoices` or `-soundfile`;
+the external is always compiled in double).
 
 ## Run it as a service
 
@@ -199,6 +201,9 @@ attribute only exists on macOS. The `jaqt` applications include Qt but
 not `libjack`: they load the user's, from `/usr/local/lib` (JackOSX
 installer) or `/opt/homebrew/lib` (Homebrew). The Pure Data target
 produces no `.pd` patch: `faust2pd` is not installed on the runner.
+Max externals go in a folder of Max's search path, for instance
+`~/Documents/Max 9/Library` (macOS) or `Documents\Max 9\Library`
+(Windows).
 
 ## Test locally
 

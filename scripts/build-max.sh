@@ -131,10 +131,12 @@ run_logged "$script" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
 [ -f "$NAME~.mxe64" ] || fail "faust2w64max6 did not produce $NAME~.mxe64"
 check_binary_archs "$NAME~.mxe64"
 # Max loads an external through its exported main
-if command -v "${MINGWPREFIX}objdump" > /dev/null; then
+# (the runner's MinGW has the prefixed compiler but an unprefixed objdump)
+objdump=$(command -v "${MINGWPREFIX}objdump" || command -v objdump || true)
+if [ -n "$objdump" ]; then
     # the name table of the exports: "[   0] main", or with newer
     # binutils "[   0] +base[   1] 0000 main"
-    "${MINGWPREFIX}objdump" -p "$NAME~.mxe64" \
+    "$objdump" -p "$NAME~.mxe64" \
         | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^[[:space:]]*$/p' \
         | grep -Eq '[[:space:]]main$' \
         || fail "$NAME~.mxe64 does not export main"
