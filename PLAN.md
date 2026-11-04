@@ -604,10 +604,22 @@ faustservice splits two of them between Linux and the Mac today, and
 
 ### More work
 
-- **`jack-qt` (`faust2jaqt`).** Qt is in place, but a universal
-  `libjack` is needed on the runner (for instance from the JackOSX
-  installer; Homebrew's JACK is arm64 only), and users must have JACK
-  installed. `faust2jaqt` has no `-arch`: add it as in `faust2caqt`.
+- **`jack-qt` (`faust2jaqt`).** Implemented for Apple Silicon only, as
+  `jaqt.yml` and `build-jaqt.sh`: Homebrew's JACK (`brew install jack`,
+  arm64) provides `libjack` and its `pkg-config` file, and `faust2jaqt`
+  builds for the machine it runs on. It is run with `-deploy` (not listed
+  by its `-help`), without which `macdeployqt` is not run and the
+  application would load Qt from the runner. `macdeployqt` also copies
+  `libjack` into the application, while the JACK client library must
+  match the user's JACK server: `build-jaqt.sh` removes it, changes the
+  binary's reference to `@rpath/libjack.0.dylib` and adds the rpaths
+  `/usr/local/lib` (JackOSX installer) and `/opt/homebrew/lib`
+  (Homebrew), then signs again. Options: `-midi`, `-osc` (the arm64
+  `libOSCFaust.a` of the runner's Faust is enough), `-nvoices <n>`,
+  `-effect auto`, `-preset auto`, the Faust options; `-httpd`,
+  `-qrcode`, `-soundfile`, `-resample` refused until tested. Tested
+  locally with Qt 6.12 and JACK 1.9.21 (JackOSX). Universal builds would
+  need a universal `libjack` on the runner and `-arch` in `faust2jaqt`.
 - **Unity `osx`, `ios`, `all` (`faust2unity`).** These makefiles still
   call `remoteOSX`, the SSH helper of the former Mac, while the
   Dockerfile installs only `dockerOSX`; its

@@ -121,6 +121,17 @@ provides the headers). The artifacts hold `<name>~.pd_darwin`;
 `faust2pd` writes is not produced: `faust2pd` is not installed on the
 runner.
 
+## Compile a JACK + Qt application (Apple Silicon only)
+
+```sh
+gh workflow run jaqt.yml -f name=osc -f dsp="$(cat tests/osc.dsp)"
+```
+
+Same inputs as `caqt.yml`, but `arch` only accepts `arm64`. The
+application includes Qt but not `libjack`: it needs JACK installed on
+the user's machine, in `/usr/local/lib` (JackOSX installer) or
+`/opt/homebrew/lib` (Homebrew).
+
 ## How it works
 
 - `.github/actions/setup-faust` builds the Faust compiler from
