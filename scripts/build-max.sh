@@ -110,7 +110,11 @@ run_logged "$script" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
 check_binary_archs "$NAME~.mxe64"
 # Max loads an external through its exported main
 if command -v "${MINGWPREFIX}objdump" > /dev/null; then
-    "${MINGWPREFIX}objdump" -p "$NAME~.mxe64" | grep -Eq '^[[:space:]]*\[ *[0-9]+\] +main$' \
+    # the name table of the exports: "[   0] main", or with newer
+    # binutils "[   0] +base[   1] 0000 main"
+    "${MINGWPREFIX}objdump" -p "$NAME~.mxe64" \
+        | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^[[:space:]]*$/p' \
+        | grep -Eq '[[:space:]]main$' \
         || fail "$NAME~.mxe64 does not export main"
     echo "exports: main"
 fi
