@@ -342,8 +342,8 @@ In the faustservice Dockerfile:
   public: the Actions log shows the `DSP` environment variable in the
   step header, and the artifacts contain the source. faustservice does
   not publish its users' code today. Either announce it in the IDE export
-  dialog, or make the repository private, which makes macOS minutes paid
-  (about 10× Linux minutes).
+  dialog, or make the repository private, which makes the runs paid
+  (about $0.06 per compilation, see §8, "Cost").
 
 ### Steps
 
@@ -380,9 +380,54 @@ In the faustservice Dockerfile:
   which users will not have: reject it.
 - **Minimum macOS.** `faust2max6` builds with `-mmacosx-version-min=10.9`;
   check which Max versions and macOS versions the result actually loads on.
-- **Cost.** macOS minutes are free on a public repository. On a private
-  one they count about 10× Linux minutes. The Faust cache is what keeps a
-  job at a few minutes.
+- **Cost.** Standard GitHub-hosted runners are free on a public
+  repository, and do not draw on the included usage. On a private
+  repository (GitHub pricing since 2026-01-01, checked 2026-11-04):
+
+  - the included usage is a dollar amount per month, not a number of
+    minutes: $12 on GitHub Free for organizations (the plan of
+    `grame-cncm`, read with `gh api orgs/grame-cncm --jq .plan.name`),
+    $18 on Team, $300 on Enterprise Cloud. Each minute is deducted at its
+    own rate; there is no minute multiplier any more;
+  - a standard macOS runner (`macos-15`) costs $0.062 per minute, about
+    ten times a Linux 2-core runner ($0.006);
+  - each job is rounded up to the whole minute.
+
+  For this workflow, a compilation takes 25 to 42 s, billed 1 minute, so
+  about $0.06; the run that rebuilds Faust after a new `master-dev`
+  commit takes about 4 minutes, about $0.25 more. The $12 of the Free
+  plan therefore cover about 190 compilations a month while `master-dev`
+  does not move.
+
+  | compilations per month | gross cost | beyond the $12 included |
+  | :--- | :--- | :--- |
+  | 100 | $6.20 | $0 |
+  | 500 | $31 | about $19 |
+  | 1,000 | $62 | about $50 |
+  | plus a Faust rebuild every day (30) | about $7.50 | added to the above |
+
+  Consequences for a private repository:
+
+  - without a payment method on file, runs are blocked once the included
+    usage is spent, until the next month: faustservice would get
+    failures. With a payment method, usage beyond it is billed unless a
+    budget limits it, and GitHub does not document a $0 default budget:
+    set one explicitly, and enable the e-mail alerts at 90% and 100% of
+    the included usage;
+  - Faust rebuilds become a noticeable share when `master-dev` moves
+    often. To bound them, follow `master-dev` at most once a day or once
+    a week (resolve the commit from a scheduled workflow, or round the
+    cache key to the day), or pin a chosen Faust commit or release;
+  - artifact storage included on GitHub Free is 500 MB, shared with
+    GitHub Packages. With zips of about 0.9 MB kept 7 days, that is about
+    500 compilations a week; lower `retention-days` (1 is enough for
+    faustservice, which downloads the zip at once) if needed. The cache
+    has 10 GB per repository; Faust takes 46.5 MB per `master-dev`
+    commit, and GitHub evicts the oldest entries.
+
+  Sources: [Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing),
+  [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions),
+  [Pricing changes for GitHub Actions](https://github.com/resources/insights/2026-pricing-changes-for-github-actions).
 - **Repository visibility.** The repository is public: free minutes, but
   the logs and artifacts of every run are visible to anyone. To revisit
   if user code must stay private (§7, privacy).
