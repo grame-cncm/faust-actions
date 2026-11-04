@@ -30,6 +30,14 @@ FILEARGS=" -effect -presets "
 check_options
 
 prepare_sources
+# faust2juce names the plugin's subtype from `shasum <file.dsp>`; Git Bash
+# has no shasum but a sha1sum printing the same format.
+if [ "$OS" = windows ] && ! command -v shasum > /dev/null; then
+    mkdir -p "$OUT/.bin"
+    printf '#!/bin/bash\nexec sha1sum "$@"\n' > "$OUT/.bin/shasum"
+    chmod +x "$OUT/.bin/shasum"
+    export PATH="$OUT/.bin:$PATH"
+fi
 run_logged faust2juce ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
 [ -f "$NAME/CMakeLists.txt" ] || fail "faust2juce did not write $NAME/CMakeLists.txt"
 

@@ -23,10 +23,11 @@ check_options
 
 prepare_sources
 # faust2lv2 looks for lv2.cpp and lv2ui.cpp in FAUSTLIB and for the Faust
-# headers in FAUSTINC, by default in /usr/local, not where Faust is.
+# headers in FAUSTINC (the include/faust directory itself: it checks
+# $FAUSTINC/gui/QTUI.h), by default in /usr/local, not where Faust is.
 export FAUSTLIB FAUSTINC
 FAUSTLIB=$(faust -archdir)
-FAUSTINC=$(faust -includedir)
+FAUSTINC=$(faust -includedir)/faust
 run_logged faust2lv2 ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
 
 bundle="$NAME.lv2"
