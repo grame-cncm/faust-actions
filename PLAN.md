@@ -476,14 +476,18 @@ application, universal by default. It has the inputs of `max.yml`
 version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
 `<name>.app` and the sources, plus `<name>-log`.
 
-- **Architectures.** `faust2caqt` has no `-arch` option: `qmake` builds
-  for the machine it runs on. `build-caqt.sh` writes a `.qmake.conf` with
-  `QMAKE_APPLE_DEVICE_ARCHS = x86_64 arm64` in its build directory:
-  `qmake` reads `.qmake.conf` in the project directory and its parents,
-  and `faust2caqt` creates its project in a temporary directory under the
-  current one. Checked: the same build without the file gives an arm64
-  application only. The cleaner fix is an `-arch` option in `faust2caqt`
-  itself, as in `faust2max6`; the `.qmake.conf` then goes away.
+- **Architectures.** `faust2caqt` takes `-arch auto|arm64|x86_64|universal`
+  (and `-universal`), as `faust2max6` does: the other values than `auto`
+  pass `QMAKE_APPLE_DEVICE_ARCHS` to `qmake -project`, after checking that
+  Qt's `QtCore` holds the requested architectures (otherwise it stops
+  with a message naming the Qt and its architectures). `build-caqt.sh`
+  uses `-arch` when `faust2caqt -help` lists it. With an older
+  `faust2caqt`, which builds for the machine it runs on, it writes a
+  `.qmake.conf` with `QMAKE_APPLE_DEVICE_ARCHS` in its build directory
+  instead: `qmake` reads `.qmake.conf` in the project directory and its
+  parents, and `faust2caqt` creates its project in a temporary directory
+  under the current one. Checked both ways; without either, the
+  application is arm64 only.
 - **Qt.** A universal application needs a universal Qt. The
   `setup-qt` action installs it with `aqtinstall` 3.3.0 (Qt's online
   packages for macOS are universal; Homebrew's Qt is arm64 only), in a
@@ -549,6 +553,7 @@ version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
 5. faustservice integration (§7).
 6. Signing and notarization, if the binaries are to be distributed.
 7. `faust2caqt` (§9): done, universal applications built on GitHub with
-   Qt 6.8.3. To do: run them on an Apple Silicon and an Intel Mac, test
-   `-effect auto`, add `-arch` to `faust2caqt` in Faust.
+   Qt 6.8.3. `-arch` added to `faust2caqt` in Faust, to commit to
+   `master-dev`; `build-caqt.sh` uses it once there. To do: run the
+   applications on an Apple Silicon and an Intel Mac, test `-effect auto`.
 8. Further targets (`faust2au`, `faust2vst`, `faust2juce`…).

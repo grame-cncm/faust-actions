@@ -33,20 +33,27 @@ check_options
 
 prepare_sources
 
-# faust2caqt has no option to choose the architectures. qmake looks for a
-# .qmake.conf in the project directory and its parents, and faust2caqt
-# creates its project in a temporary directory under the current one, so
-# this file sets the architectures of the whole build.
-case "$ARCH" in
-    universal) qarchs="x86_64 arm64" ;;
-    *) qarchs="$ARCH" ;;
-esac
-printf 'QMAKE_APPLE_DEVICE_ARCHS = %s\n' "$qarchs" > .qmake.conf
-echo "qt: $QTDIR (Qt $(qmake -query QT_VERSION)), QMAKE_APPLE_DEVICE_ARCHS = $qarchs" >> "$OUT/build.log"
-
-run_logged faust2caqt ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
-# qmake writes its .qmake.stash next to the .qmake.conf it found
-rm -f .qmake.conf .qmake.stash
+# Recent faust2caqt versions take -arch. Older ones have no option to
+# choose the architectures: qmake looks for a .qmake.conf in the project
+# directory and its parents, and faust2caqt creates its project in a
+# temporary directory under the current one, so this file then sets the
+# architectures of the whole build.
+faust2caqt -help > "$OUT/.caqt-help" 2>&1 || true
+if grep -q -- '-arch auto' "$OUT/.caqt-help"; then
+    echo "qt: $QTDIR (Qt $(qmake -query QT_VERSION)), faust2caqt -arch $ARCH" >> "$OUT/build.log"
+    run_logged faust2caqt -arch "$ARCH" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
+else
+    case "$ARCH" in
+        universal) qarchs="x86_64 arm64" ;;
+        *) qarchs="$ARCH" ;;
+    esac
+    printf 'QMAKE_APPLE_DEVICE_ARCHS = %s\n' "$qarchs" > .qmake.conf
+    echo "qt: $QTDIR (Qt $(qmake -query QT_VERSION)), faust2caqt without -arch, .qmake.conf with QMAKE_APPLE_DEVICE_ARCHS = $qarchs" >> "$OUT/build.log"
+    run_logged faust2caqt ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
+    # qmake writes its .qmake.stash next to the .qmake.conf it found
+    rm -f .qmake.conf .qmake.stash
+fi
+rm -f "$OUT/.caqt-help"
 
 [ -d "$NAME.app" ] || fail "faust2caqt did not produce $NAME.app"
 check_bundle_archs "$NAME.app"
