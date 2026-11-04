@@ -56,22 +56,23 @@ the version.
 
 ```
 faustosxservice/
+├── action.yml                 # the action: any target, from a .dsp file or the event (§11)
 ├── .github/
-│   ├── actions/setup-faust/   # composite action: build or restore Faust
-│   ├── actions/setup-qt/      # composite action: install or restore Qt
-│   ├── actions/setup-juce/    # composite action: fetch or restore JUCE
-│   ├── workflows/max.yml      # faust2max6 job
-│   ├── workflows/caqt.yml     # faust2caqt job (§9)
-│   └── workflows/juce.yml     # faust2juce plugins job (§10)
+│   ├── actions/setup-faust/   # standalone action: build or restore Faust
+│   ├── actions/setup-qt/      # standalone action: install or restore Qt
+│   ├── actions/setup-juce/    # standalone action: fetch or restore JUCE
+│   ├── workflows/<target>.yml # max, caqt, jaqt, juce, puredata, supercollider,
+│   │                          # csound: workflow_dispatch callers of action.yml
+│   └── workflows/test-action.yml  # action.yml on a .dsp file, every target
 ├── scripts/
-│   ├── lib.sh                 # shared: inputs, archive, logs, checks, zip
-│   ├── build-max.sh           # runs faust2max6, packages the result
-│   ├── build-caqt.sh          # runs faust2caqt, packages the result
-│   ├── build-juce.sh          # runs faust2juce and CMake, packages the plugins
+│   ├── lib.sh                 # shared: sources, options, logs, checks, zip
+│   ├── build-<target>.sh      # runs faust2xxx, checks and packages the result
+│   ├── setup/*.sh             # installs Faust, Qt, JUCE and the SDK headers
 │   └── faustosx               # client: send a .dsp, wait, download (to do)
 ├── tests/
 │   ├── osc.dsp                # smoke-test program
-│   └── withlib/               # program importing a local .lib (archive)
+│   └── withlib/               # program importing a local .lib
+├── LICENSE                    # MIT
 └── README.md
 ```
 
@@ -759,7 +760,55 @@ Implemented as `juce.yml` and `scripts/build-juce.sh`:
 JUCE plugins come first, before this order: they need no SDK beyond
 JUCE itself and cover AU, VST3 and Standalone at once.
 
-## 11. Milestones
+## 11. The action, for other repositories
+
+`action.yml`, at the root, makes the whole repository a composite action
+that any repository can use (`uses: grame-cncm/faustosxservice@<ref>`),
+with its own runner minutes (free on a public repository) and caches.
+For a project compiling its own Faust programs, this is plainly the use
+GitHub's terms allow (§8, "Terms of use").
+
+- **Inputs.** `target`, `dsp` (path of a `.dsp` file of the workspace),
+  `name`, `options`, `arch`, `faust-ref` and the versions `qt`, `juce`,
+  `pd`, `sc`, `csound`. **Outputs:** `zip`, `log`, `name`,
+  `faust-commit`. The caller uploads or publishes the zip.
+- **Sources from a file.** `lib.sh` takes `DSP_FILE`: the `.dsp` file is
+  copied as `<name>.dsp`, with the regular files next to it whose names
+  and extensions an archive would accept (600 KB in all); symbolic links,
+  subdirectories and other files are left out. The name defaults to the
+  file's; a file name an identifier cannot hold (`my-osc.dsp`) needs the
+  `name` input.
+- **Sources from the event.** The workflows of this repository call the
+  action with `dsp-from-event: "true"`: `lib.sh` then reads the `dsp` and
+  `archive` inputs from the `workflow_dispatch` payload
+  (`FAUSTOSX_FROM_EVENT=1`), never from the environment, so that the log
+  does not show them (§7, "Privacy"). The event is only read when asked:
+  in another repository, the payload is the caller's own event.
+- **No nested local actions.** A composite action cannot call a
+  neighbouring local action: `uses: ./...` resolves in the calling
+  workspace, and `uses` takes no expression. `action.yml` therefore runs
+  the cache steps itself and the shell code from `scripts/setup/*.sh`
+  through `$GITHUB_ACTION_PATH`; the standalone `setup-*` actions call the
+  same scripts (`$GITHUB_ACTION_PATH/../../../scripts/setup`), so there is
+  one copy of each installation.
+- **Runner.** The action stops unless it runs on arm64 macOS
+  (`runs-on: macos-15`): the universal builds rely on it (§10, "For every
+  new target").
+- **Paths.** Each build goes to `$RUNNER_TEMP/faustosx/<target>-<name>`,
+  so a job can build several targets. The cache keys and paths are those
+  of the former workflows, whose caches the action reuses.
+- **Tests.** `test-action.yml` (started by hand) runs the action on
+  `tests/withlib/withlib.dsp` for every target and checks that the zip
+  holds the sources, `mylib.lib` included. Locally: `DSP_FILE` (absolute,
+  relative, with `name`), the refusals (two sources, missing file, not a
+  `.dsp`, invalid name), the event mode only when asked, and the 17 former
+  cases of `DSP` and `ARCHIVE`.
+- **To do.** A release tag (`v1`, moved along with `v1.x.y`) for callers
+  to pin, then the GitHub Marketplace (the `branding` is set); a test from
+  another repository; signing and notarization as an option, with the
+  caller's secrets.
+
+## 12. Milestones
 
 1. Done: repository, `max.yml` with Faust built from `master-dev`, manual
    `workflow_dispatch` on `tests/osc.dsp`; `lipo -archs` lists
@@ -776,3 +825,5 @@ JUCE itself and cover AU, VST3 and Standalone at once.
    `master-dev`; `build-caqt.sh` uses it once there. To do: run the
    applications on an Apple Silicon and an Intel Mac, test `-effect auto`.
 8. The other macOS targets of faustservice, in the order of §10.
+9. The action for other repositories (§11): done; to do, a release tag
+   and the Marketplace.
