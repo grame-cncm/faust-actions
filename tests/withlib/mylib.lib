@@ -1,0 +1,5 @@
+// Local library used by withlib.dsp.
+import("stdfaust.lib");
+
+// Two slightly detuned sawtooth oscillators.
+detuned(f) = (os.sawtooth(f) + os.sawtooth(f * 1.005)) * 0.5;

@@ -8,8 +8,12 @@ on:
   workflow_dispatch:
     inputs:
       dsp:
-        description: Faust source code
-        required: true
+        description: Faust source code (or use archive)
+        default: ""
+        type: string
+      archive:
+        description: Instead of dsp, base64 of a tar.gz holding <name>.dsp and the files it imports, without directories
+        default: ""
         type: string
       name:
         description: Program name, without .dsp
@@ -54,6 +58,7 @@ jobs:
       - name: Compile
         env:
           DSP: ${{ inputs.dsp }}
+          ARCHIVE: ${{ inputs.archive }}
           NAME: ${{ inputs.name }}
           OPTIONS: ${{ inputs.options }}
           ARCH: ${{ inputs.arch }}
