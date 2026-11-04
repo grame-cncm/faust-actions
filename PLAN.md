@@ -663,7 +663,12 @@ faustservice splits two of them between Linux and the Mac today, and
   (Homebrew), then signs again. Options: `-midi`, `-osc` (the arm64
   `libOSCFaust.a` of the runner's Faust is enough), `-nvoices <n>`,
   `-effect auto`, `-preset auto`, the Faust options; `-httpd`,
-  `-qrcode`, `-soundfile`, `-resample` refused until tested. Tested
+  `-qrcode`, `-soundfile`, `-resample` refused until tested. Two flags
+  `faust2jaqt` does not give itself, needed when JACK and Faust are not
+  in default directories (on the runner): the JACK include path, which
+  it passes to qmake as `LIBS` only, goes in `CXXFLAGS`, and the path of
+  `libOSCFaust.a` (`faust -libdir`) in `LFLAGS`; it appends its own flags
+  to both. The proper fix is in `faust2jaqt`. Tested
   locally with Qt 6.12 and JACK 1.9.21 (JackOSX). Universal builds would
   need a universal `libjack` on the runner and `-arch` in `faust2jaqt`.
 - **Unity `osx`, `ios`, `all` (`faust2unity`).** These makefiles still

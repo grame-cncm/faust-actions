@@ -39,6 +39,10 @@ prepare_sources
 # CXXFLAGS, which qmake gets as QMAKE_CXXFLAGS. Needed when JACK is not in
 # a default include directory (Homebrew's /opt/homebrew/include).
 export CXXFLAGS="$(pkg-config --cflags jack)"
+# Likewise, -osc links -lOSCFaust without the path of Faust's libraries;
+# faust2jaqt appends to LFLAGS, which qmake gets as QMAKE_LFLAGS. Needed
+# when Faust is not installed in a default library directory.
+export LFLAGS="-L$(faust -libdir)"
 echo "qt: $QTDIR (Qt $(qmake -query QT_VERSION)), jack $(pkg-config --modversion jack) ($(pkg-config --variable=libdir jack))" >> "$OUT/build.log"
 # -deploy (not listed by -help) runs macdeployqt; without it the
 # application would load Qt from the runner's installation.
