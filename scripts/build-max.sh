@@ -59,8 +59,34 @@ elif command -v g++ > /dev/null && [ "$(g++ -dumpmachine)" = x86_64-w64-mingw32 
 else
     fail "no MinGW-w64 g++ targeting x86_64-w64-mingw32 on the PATH"
 fi
-command -v "${MINGWPREFIX}dllwrap" > /dev/null || fail "${MINGWPREFIX}dllwrap not found next to ${MINGWPREFIX}g++"
 echo "mingw: $(command -v "${MINGWPREFIX}g++") ($("${MINGWPREFIX}g++" -dumpversion))" >> "$OUT/build.log"
+
+# faust2w64max6 links the external with dllwrap, which recent MinGW
+# distributions (the runner's among them) no longer ship. Without it, a
+# stand-in on the PATH does the same link with the compiler driver:
+# -shared, the .def file giving the exported symbol (main), and the other
+# arguments as they are (--target, which only dllwrap reads, is dropped).
+mkdir -p "$OUT/.bin"
+export PATH="$OUT/.bin:$PATH"
+if ! command -v "${MINGWPREFIX}dllwrap" > /dev/null; then
+    cat > "$OUT/.bin/${MINGWPREFIX}dllwrap" <<'SHIM'
+#!/bin/bash
+driver=
+args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --target=*) ;;
+        --driver-name) driver=$2; shift ;;
+        --def) args+=("$2"); shift ;;
+        *) args+=("$1") ;;
+    esac
+    shift
+done
+exec "${driver:?dllwrap stand-in: no --driver-name}" -shared "${args[@]}"
+SHIM
+    chmod +x "$OUT/.bin/${MINGWPREFIX}dllwrap"
+    echo "dllwrap: not found, using a stand-in that links with ${MINGWPREFIX}g++ -shared" >> "$OUT/build.log"
+fi
 
 [ -f "$MAXSDK/max-includes/x64/MaxAPI.lib" ] && [ -f "$MAXSDK/msp-includes/x64/MaxAudio.lib" ] \
     || fail "MAXSDK=$MAXSDK lacks max-includes/x64/MaxAPI.lib or msp-includes/x64/MaxAudio.lib"
@@ -71,7 +97,6 @@ export MAXSDK
 # (MAXSDK when set) instead.
 script=$(command -v faust2w64max6) || fail "faust2w64max6 not found"
 if grep -q '^MAXSDK=/usr/local/include/c74support' "$script"; then
-    mkdir -p "$OUT/.bin"
     sed 's|^MAXSDK=/usr/local/include/c74support.*|[ -n "$MAXSDK" ] \|\| MAXSDK=/usr/local/include/c74support|' \
         "$script" > "$OUT/.bin/faust2w64max6"
     chmod +x "$OUT/.bin/faust2w64max6"
@@ -83,4 +108,10 @@ run_logged "$script" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
 
 [ -f "$NAME~.mxe64" ] || fail "faust2w64max6 did not produce $NAME~.mxe64"
 check_binary_archs "$NAME~.mxe64"
+# Max loads an external through its exported main
+if command -v "${MINGWPREFIX}objdump" > /dev/null; then
+    "${MINGWPREFIX}objdump" -p "$NAME~.mxe64" | grep -Eq '^[[:space:]]*\[ *[0-9]+\] +main$' \
+        || fail "$NAME~.mxe64 does not export main"
+    echo "exports: main"
+fi
 package max
