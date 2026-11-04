@@ -838,10 +838,14 @@ GitHub's terms allow (§8, "Terms of use").
   relative, with `name`), the refusals (two sources, missing file, not a
   `.dsp`, invalid name), the event mode only when asked, and the 17 former
   cases of `DSP` and `ARCHIVE`.
+- **From another repository.** Checked on 2026-11-04 from the private
+  `grame-cncm/faustservice-builds`: GitHub downloads
+  `grame-cncm/faust-actions@c264159`, the action builds Faust in that
+  repository's cache (about 2 minutes of the run) and returns a universal
+  Max external; the log holds no line of the source.
 - **To do.** A release tag (`v1`, moved along with `v1.x.y`) for callers
-  to pin, then the GitHub Marketplace (the `branding` is set); a test from
-  another repository; signing and notarization as an option, with the
-  caller's secrets.
+  to pin, then the GitHub Marketplace (the `branding` is set); signing
+  and notarization as an option, with the caller's secrets.
 
 ## 12. Milestones
 
