@@ -12,8 +12,8 @@ branding:
 inputs:
   target:
     description: >
-      max, caqt, jaqt (macOS); juce (macOS, Linux, Windows); puredata,
-      supercollider, csound (macOS, Linux); lv2 (Linux)
+      max (macOS, Windows); caqt, jaqt (macOS); juce (macOS, Linux,
+      Windows); puredata, supercollider, csound (macOS, Linux); lv2 (Linux)
     required: true
   dsp:
     description: >
@@ -97,7 +97,8 @@ runs:
         set -euo pipefail
         os=$RUNNER_OS; machine=$RUNNER_ARCH
         case "$TARGET" in
-            max|caqt|jaqt) systems="macOS" ;;
+            caqt|jaqt) systems="macOS" ;;
+            max) systems="macOS Windows" ;;
             juce) systems="macOS Linux Windows" ;;
             puredata|supercollider|csound) systems="macOS Linux" ;;
             lv2) systems="Linux" ;;

@@ -1,35 +1,86 @@
 #!/bin/bash
-# Compile one Faust program into a Max external with faust2max6.
+# Compile one Faust program into a Max external: with faust2max6 on macOS
+# (universal $NAME~.mxo), with faust2w64max6 and MinGW on Windows
+# ($NAME~.mxe64, x64).
 #
 # Environment: DSP or ARCHIVE, NAME, OPTIONS, ARCH, OUT (see lib.sh), and
 #   MAXSDK   Max SDK c74support directory
 #
-# Writes $OUT/$NAME-max.zip, holding a $NAME/ folder with $NAME~.mxo,
+# Writes $OUT/$NAME-max.zip, holding a $NAME/ folder with the external,
 # $NAME.maxpat, ui.js and the sources ($NAME.dsp, plus the files of the
 # archive), and $OUT/build.log.
 
 . "$(dirname "$0")/lib.sh"
-require_os macos
+require_os macos windows
 
 : "${MAXSDK:?}"
+# On Windows, a D:/... path: the MinGW compiler, a native program, does not
+# read the /d/... paths of Git Bash.
+[ "$OS" = windows ] && MAXSDK=$(cygpath -m "$MAXSDK")
 [ -d "$MAXSDK/max-includes" ] && [ -d "$MAXSDK/msp-includes" ] \
     || fail "MAXSDK=$MAXSDK does not contain max-includes and msp-includes"
 
-# Everything not listed is refused: -native and -opt tune the code for the
-# runner's CPU, options taking a path (-effect, -I, -A, -o...) cannot refer
-# to anything the user sent, -soundfile-dynamic links a library users do
-# not have, -osc links libOSCFaust.a, which the Faust build only produces
-# for the runner's own architecture, and -arch is set by ARCH.
-FLAGS=" -mc -midi -soundfile -nopatch -nosrc -nopost -double -vec -dfs -fun -mcd -lv "
-VALUED=" -nvoices -us -ds -filter -vs -ftz "
+if [ "$OS" = macos ]; then
+    # Everything not listed is refused: -native and -opt tune the code for
+    # the runner's CPU, options taking a path (-effect, -I, -A, -o...)
+    # cannot refer to anything the user sent, -soundfile-dynamic links a
+    # library users do not have, -osc links libOSCFaust.a, which the Faust
+    # build only produces for the runner's own architecture, and -arch is
+    # set by ARCH.
+    FLAGS=" -mc -midi -soundfile -nopatch -nosrc -nopost -double -vec -dfs -fun -mcd -lv "
+    VALUED=" -nvoices -us -ds -filter -vs -ftz "
+    LITERAL=""
+    check_options
+
+    prepare_sources
+    run_logged faust2max6 -arch "$ARCH" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
+
+    [ -f "$NAME~.mxo/Contents/MacOS/$NAME~" ] || fail "faust2max6 did not produce $NAME~.mxo"
+    check_bundle_archs "$NAME~.mxo"
+    codesign --verify --verbose "$NAME~.mxo"
+    package max
+    exit 0
+fi
+
+# Windows. faust2w64max6 knows -mc and -nopost only and passes every other
+# argument to faust (it always compiles in double): -midi, -nvoices,
+# -soundfile, -nopatch... would reach faust and fail there.
+FLAGS=" -mc -nopost -vec -dfs -fun -mcd -lv "
+VALUED=" -vs -ftz "
 LITERAL=""
 check_options
 
+# MinGW-w64: x86_64-w64-mingw32-g++ when installed under that name,
+# otherwise a g++ that targets it (the runner's C:\mingw64).
+if command -v x86_64-w64-mingw32-g++ > /dev/null; then
+    export MINGWPREFIX=x86_64-w64-mingw32-
+elif command -v g++ > /dev/null && [ "$(g++ -dumpmachine)" = x86_64-w64-mingw32 ]; then
+    export MINGWPREFIX=
+else
+    fail "no MinGW-w64 g++ targeting x86_64-w64-mingw32 on the PATH"
+fi
+command -v "${MINGWPREFIX}dllwrap" > /dev/null || fail "${MINGWPREFIX}dllwrap not found next to ${MINGWPREFIX}g++"
+echo "mingw: $(command -v "${MINGWPREFIX}g++") ($("${MINGWPREFIX}g++" -dumpversion))" >> "$OUT/build.log"
+
+[ -f "$MAXSDK/max-includes/x64/MaxAPI.lib" ] && [ -f "$MAXSDK/msp-includes/x64/MaxAudio.lib" ] \
+    || fail "MAXSDK=$MAXSDK lacks max-includes/x64/MaxAPI.lib or msp-includes/x64/MaxAudio.lib"
+export MAXSDK
+
+# Older faust2w64max6 set MAXSDK to /usr/local/include/c74support whatever
+# the environment says: run a copy that keeps the value of faustpath
+# (MAXSDK when set) instead.
+script=$(command -v faust2w64max6) || fail "faust2w64max6 not found"
+if grep -q '^MAXSDK=/usr/local/include/c74support' "$script"; then
+    mkdir -p "$OUT/.bin"
+    sed 's|^MAXSDK=/usr/local/include/c74support.*|[ -n "$MAXSDK" ] \|\| MAXSDK=/usr/local/include/c74support|' \
+        "$script" > "$OUT/.bin/faust2w64max6"
+    chmod +x "$OUT/.bin/faust2w64max6"
+    script="$OUT/.bin/faust2w64max6"
+fi
+
 prepare_sources
-run_logged faust2max6 -arch "$ARCH" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
+run_logged "$script" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
 
-[ -f "$NAME~.mxo/Contents/MacOS/$NAME~" ] || fail "faust2max6 did not produce $NAME~.mxo"
-check_bundle_archs "$NAME~.mxo"
-codesign --verify --verbose "$NAME~.mxo"
-
+[ -f "$NAME~.mxe64" ] || fail "faust2w64max6 did not produce $NAME~.mxe64"
+check_binary_archs "$NAME~.mxe64"
 package max

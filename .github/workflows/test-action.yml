@@ -33,6 +33,7 @@ jobs:
           - { runner: ubuntu-24.04-arm, target: lv2 }
           - { runner: ubuntu-24.04-arm, target: puredata }
           - { runner: windows-2025, target: juce }
+          - { runner: windows-2025, target: max }
     name: ${{ matrix.target }} (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
