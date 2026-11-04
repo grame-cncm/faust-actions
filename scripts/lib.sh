@@ -5,6 +5,8 @@
 #   DSP      Faust source code (text), or
 #   ARCHIVE  base64 of a tar.gz holding $NAME.dsp and the files it imports
 #            (.lib, other .dsp, soundfiles), without directories
+#            In a workflow run, both come from the dsp and archive inputs
+#            in $GITHUB_EVENT_PATH, not from the environment (see below).
 #   NAME     program name, without .dsp
 #   OPTIONS  extra options for the faust2xxx script, checked by check_options
 #   ARCH     universal, arm64 or x86_64
@@ -23,6 +25,23 @@ OPTIONS=${OPTIONS:-}
 mkdir -p "$OUT"
 : > "$OUT/build.log"
 fail() { echo "ERROR: $*" >> "$OUT/build.log"; echo "::error::$*" >&2; exit 1; }
+
+# The Actions log prints the environment of each step in its header, which
+# would publish the user's source on a public repository. The workflows
+# therefore do not pass dsp and archive in the environment: they are read
+# from the event payload, which the log does not show.
+event_input() {
+    if command -v jq > /dev/null; then
+        jq -r --arg k "$1" '.inputs[$k] // ""' "$GITHUB_EVENT_PATH"
+    else
+        python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("inputs", {}).get(sys.argv[2]) or "")' \
+            "$GITHUB_EVENT_PATH" "$1"
+    fi
+}
+if [ -z "$DSP" ] && [ -z "$ARCHIVE" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
+    DSP=$(event_input dsp) || fail "cannot read the dsp input from $GITHUB_EVENT_PATH"
+    ARCHIVE=$(event_input archive) || fail "cannot read the archive input from $GITHUB_EVENT_PATH"
+fi
 
 if [ -n "$DSP" ] && [ -n "$ARCHIVE" ]; then
     fail "give either dsp or archive, not both"

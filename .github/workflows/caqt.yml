@@ -58,10 +58,10 @@ jobs:
 
       # Inputs reach the script through the environment only: expanding them
       # inside the script text would let the Faust source run shell commands.
+      # dsp and archive are not passed at all: lib.sh reads them from the
+      # event payload, since the log prints each step's environment.
       - name: Compile
         env:
-          DSP: ${{ inputs.dsp }}
-          ARCHIVE: ${{ inputs.archive }}
           NAME: ${{ inputs.name }}
           OPTIONS: ${{ inputs.options }}
           ARCH: ${{ inputs.arch }}
