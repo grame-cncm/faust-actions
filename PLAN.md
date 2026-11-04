@@ -65,8 +65,6 @@ faust-actions/
 ├── setup-qt/                 # standalone action: install or restore Qt
 ├── setup-juce/               # standalone action: fetch or restore JUCE
 ├── .github/
-│   ├── workflows/<target>.yml # max, caqt, jaqt, juce, puredata, supercollider,
-│   │                          # csound: workflow_dispatch callers of action.yml
 │   └── workflows/test-action.yml  # action.yml on a .dsp file, every target
 ├── scripts/
 │   ├── lib.sh                 # shared: sources, options, logs, checks, zip
@@ -81,6 +79,11 @@ faust-actions/
 ```
 
 ## 4. The `max.yml` workflow
+
+The `<target>.yml` workflows described here and in §9 and §10 are now in
+the private `grame-cncm/faustservice-builds` (§7, "Public action, private
+service"); their build steps moved into `action.yml` (§11). Their inputs
+and their checks are unchanged.
 
 ### Inputs (`workflow_dispatch`)
 
@@ -196,7 +199,7 @@ faustservice host. No size limit then, beyond faustservice's own 500 KB.
 `scripts/faustosx foo.dsp [options]` wraps the GitHub CLI:
 
 ```bash
-gh workflow run max.yml -R grame-cncm/faust-actions -f name=foo -f dsp="$(cat foo.dsp)"
+gh workflow run max.yml -R grame-cncm/faustservice-builds -f name=foo -f dsp="$(cat foo.dsp)"
 ```
 
 It passes a unique `tag` input and finds its run by the run name
@@ -272,7 +275,7 @@ files.
    below).
 3. Create a unique `tag` (session key plus a random suffix) and start the
    run through the REST API:
-   `POST /repos/grame-cncm/faust-actions/actions/workflows/max.yml/dispatches`
+   `POST /repos/grame-cncm/faustservice-builds/actions/workflows/max.yml/dispatches`
    with `{"ref": "main", "inputs": {...}}`. `curl` and `jq` are enough; `gh`
    is not needed in the image.
 4. Find the run: `GET .../actions/workflows/max.yml/runs?event=workflow_dispatch`,
@@ -317,7 +320,7 @@ In the faustservice Dockerfile:
 ### GitHub token
 
 - A fine-grained personal access token, owner `grame-cncm`, repository
-  `faust-actions` only, permission *Actions: read and write* (start,
+  `faustservice-builds` only, permission *Actions: read and write* (start,
   read and cancel runs, download artifacts). It can do nothing else.
 - Given to the container at run time, never written into the image or a
   repository: `docker run --env-file /etc/faustservice/github.env ...`,
@@ -353,6 +356,32 @@ In the faustservice Dockerfile:
   `dockerOSX` when the dispatch itself fails.
 - **Privacy.** See "Privacy" below.
 
+### Public action, private service
+
+`faust-actions` is public: the action and its tests, free macOS minutes,
+usable by any repository. faustservice's compilations run elsewhere, in
+the **private** repository `grame-cncm/faustservice-builds`, whose seven
+`workflow_dispatch` workflows (`max.yml`, `caqt.yml`, `jaqt.yml`,
+`juce.yml`, `puredata.yml`, `supercollider.yml`, `csound.yml`, one per
+target, same inputs as before) only call `grame-cncm/faust-actions`,
+pinned to a commit, with `dsp-from-event: "true"`. These workflows were
+in this repository until 2026-11-04.
+
+- The runs, their logs and their artifacts are visible only to the
+  members of the private repository: the user code is no longer public,
+  even during a run.
+- `githubOSX` dispatches to `grame-cncm/faustservice-builds` (in the
+  steps below, read that repository for `faust-actions`), and its token
+  is limited to that repository.
+- Its minutes are billed (about $0.06 per compilation, §8, "Cost"); its
+  caches are its own, so Faust, Qt and JUCE are installed once more there.
+- Updating the service means moving the pinned commit in its workflows,
+  after `test-action.yml` passed here.
+
+The points below remain useful for a service run from a public
+repository, and the deletion after download is still worth doing in the
+private one.
+
 ### Privacy
 
 faustservice does not publish its users' code today. On a public
@@ -371,7 +400,7 @@ artifacts, which hold the sources next to the binary.
   the run name.
 - **Deleted after download.** Once `githubOSX` has the zip, it deletes the
   whole run with the same token (permission *Actions: read and write*):
-  `DELETE /repos/grame-cncm/faust-actions/actions/runs/<run_id>`, which
+  `DELETE /repos/grame-cncm/faustservice-builds/actions/runs/<run_id>`, which
   removes the run, its log and its artifacts. Finer:
   `DELETE .../actions/artifacts/<id>` and `DELETE .../actions/runs/<id>/logs`.
   If the deletion fails, the 7-day retention of the artifacts and the log
@@ -518,9 +547,10 @@ artifacts, which hold the sources next to the binary.
   Sources: [Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing),
   [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions),
   [Pricing changes for GitHub Actions](https://github.com/resources/insights/2026-pricing-changes-for-github-actions).
-- **Repository visibility.** The repository is public: free minutes, but
-  the logs and artifacts of every run are visible to anyone. To revisit
-  if user code must stay private (§7, privacy).
+- **Repository visibility.** `faust-actions` is public (free minutes,
+  usable by other repositories); faustservice's compilations run in the
+  private `grame-cncm/faustservice-builds` (§7, "Public action, private
+  service").
 
 ## 9. The `caqt.yml` workflow
 
@@ -782,8 +812,9 @@ GitHub's terms allow (§8, "Terms of use").
   subdirectories and other files are left out. The name defaults to the
   file's; a file name an identifier cannot hold (`my-osc.dsp`) needs the
   `name` input.
-- **Sources from the event.** The workflows of this repository call the
-  action with `dsp-from-event: "true"`: `lib.sh` then reads the `dsp` and
+- **Sources from the event.** The workflows of
+  `grame-cncm/faustservice-builds` (§7) call the action with
+  `dsp-from-event: "true"`: `lib.sh` then reads the `dsp` and
   `archive` inputs from the `workflow_dispatch` payload
   (`FAUSTOSX_FROM_EVENT=1`), never from the environment, so that the log
   does not show them (§7, "Privacy"). The event is only read when asked:

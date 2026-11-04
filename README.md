@@ -13,9 +13,10 @@ Silicon) by default, with GitHub Actions:
 | `supercollider` | `faust2supercollider` | UGen `<name>.scx` and class file `<name>.sc` |
 | `csound` | `faust2csound` | Csound opcode `<name>.dylib` |
 
-It can be used in two ways: as an **action** in the workflows of any
-repository, or through the **workflows of this repository**, started by
-hand or by a service such as faustservice. See [PLAN.md](PLAN.md) for the
+It is an **action**, for the workflows of any repository: on a `.dsp`
+file of the repository, or on a source received as text by a workflow
+started by a service (faustservice's compilations run that way, in a
+separate private repository). See [PLAN.md](PLAN.md) for the
 design, the measurements and the next steps. MIT license, see
 [LICENSE](LICENSE). This repository was first named `faustosxservice`;
 GitHub redirects the old address.
@@ -80,43 +81,59 @@ alone, for instance to run another `faust2xxx` script:
   id: qt
 ```
 
-## Use the workflows of this repository
+## Run it as a service
 
-Each target has a workflow started by hand (`workflow_dispatch`), which
-takes the source as text, so that a client needs no repository of its
-own. It requires write access to this repository.
+A workflow started by `workflow_dispatch` can receive the source as text
+and pass it to the action with `dsp-from-event: "true"`: the action then
+reads the `dsp` or `archive` input from the event payload, never from
+the environment, so that the log does not show the source. The caller
+needs write access to the repository holding the workflow.
+
+```yaml
+on:
+  workflow_dispatch:
+    inputs:
+      dsp: { type: string, default: "" }
+      archive: { type: string, default: "" }   # instead of dsp, see below
+      name: { type: string, default: foo }
+      options: { type: string, default: "" }
+jobs:
+  max:
+    runs-on: macos-15
+    steps:
+      - uses: grame-cncm/faust-actions@main
+        id: faust
+        with:
+          target: max
+          dsp-from-event: "true"
+          name: ${{ inputs.name }}
+          options: ${{ inputs.options }}
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.faust.outputs.zip }}
+          archive: false
+```
 
 ```sh
-gh workflow run max.yml -f name=osc -f dsp="$(cat tests/osc.dsp)"
-gh run watch
+gh workflow run max.yml -R <owner>/<repo> -f name=osc -f dsp="$(cat tests/osc.dsp)"
 ```
 
 A program that imports local files (`.lib`, other `.dsp`, `.json`,
-soundfiles) goes in the `archive` input instead of `dsp`, packed flat:
+soundfiles) goes in the `archive` input instead of `dsp`, packed flat,
+at most 600 KB once decompressed:
 
 ```sh
 cd tests/withlib
-gh workflow run max.yml -f name=withlib \
+gh workflow run max.yml -R <owner>/<repo> -f name=withlib \
   -f archive="$(tar -cf - withlib.dsp mylib.lib | gzip -9 | base64)"
 ```
 
 Use a separate `gzip` rather than `tar -z`: on macOS, `tar -czf -` pads
 its output to 10 KB, which counts against the 65,535-character limit of
-all inputs together.
-
-| input | meaning | default |
-| :--- | :--- | :--- |
-| `dsp` | Faust source code, as text | empty |
-| `archive` | instead of `dsp`: base64 of a `tar.gz` holding `<name>.dsp` and the files it imports, without directories, at most 600 KB once decompressed | empty |
-| `name` | program name | `foo` |
-| `options` | options of the `faust2xxx` script | empty |
-| `arch` | `universal`, `arm64` or `x86_64` (`jaqt.yml`: `arm64` only) | `universal` |
-| `qt`, `juce`, `pd`, `sc`, `csound` | versions, as for the action (in the workflows that use them) | as for the action |
-| `tag` | free text added to the run name, to find the run again | empty |
-
-Each run returns `<name>-<target>.zip` and `<name>-log`. The source is
-not shown in the log: the workflows pass it to the action through the
-event payload, not the environment.
+all inputs together. On a public repository, a run, its name and its
+artifacts are visible until they are deleted: see [PLAN.md](PLAN.md),
+§7, "Privacy", for the deletion after download and the planned
+encryption.
 
 ## Download
 
@@ -126,9 +143,10 @@ frameworks, which breaks the signature of the Qt applications:
 
 ```sh
 run=<run id>
-id=$(gh api repos/grame-cncm/faust-actions/actions/runs/$run/artifacts \
+repo=<owner>/<repo>
+id=$(gh api repos/$repo/actions/runs/$run/artifacts \
        --jq '.artifacts[] | select(.name == "osc-caqt.zip") | .id')
-gh api repos/grame-cncm/faust-actions/actions/artifacts/$id/zip > osc-caqt.zip
+gh api repos/$repo/actions/artifacts/$id/zip > osc-caqt.zip
 ditto -x -k osc-caqt.zip .
 ```
 
