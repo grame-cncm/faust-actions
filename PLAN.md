@@ -364,7 +364,7 @@ the **private** repository `grame-cncm/faustservice-builds`, whose seven
 `workflow_dispatch` workflows (`max.yml`, `caqt.yml`, `jaqt.yml`,
 `juce.yml`, `puredata.yml`, `supercollider.yml`, `csound.yml`, one per
 target, same inputs as before) only call `grame-cncm/faust-actions`,
-pinned to a commit, with `dsp-from-event: "true"`. These workflows were
+pinned to a release (`@v1.0.0`), with `dsp-from-event: "true"`. These workflows were
 in this repository until 2026-11-04.
 
 - The runs, their logs and their artifacts are visible only to the
@@ -375,8 +375,9 @@ in this repository until 2026-11-04.
   is limited to that repository.
 - Its minutes are billed (about $0.06 per compilation, §8, "Cost"); its
   caches are its own, so Faust, Qt and JUCE are installed once more there.
-- Updating the service means moving the pinned commit in its workflows,
-  after `test-action.yml` passed here.
+- Updating the service means changing `@v1.0.0` to a newer `v1.x.y` in
+  its workflows, after `test-action.yml` passed here; not `@v1`, which
+  moves, so that the service changes only when that repository says so.
 
 The points below remain useful for a service run from a public
 repository, and the deletion after download is still worth doing in the
