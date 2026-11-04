@@ -4,10 +4,13 @@ This repository was first named `faustosxservice`; it was renamed when
 the action became usable by other repositories and, later, for other
 systems than macOS.
 
-Compile Faust programs into macOS binaries (Intel and Apple Silicon) with
-GitHub Actions. The first target is Max/MSP externals built with
-`faust2max6`. The user sends a `foo.dsp` file; the workflow compiles it and
-returns the binary as a downloadable zip.
+Compile Faust programs into binaries with GitHub Actions: a composite
+action (§11) takes a `.dsp` file and a target, runs the matching
+`faust2xxx` script and returns the result as a zip. macOS results are
+universal (Intel and Apple Silicon); Linux (x86_64, arm64) and Windows
+(x64) were added later (§12). The first target was Max/MSP externals
+built with `faust2max6`, which §1 to §8 describe; the other targets
+follow the same structure (§9, §10, §12).
 
 ## 1. Why this works
 
@@ -153,36 +156,40 @@ faustservice host. No size limit then, beyond faustservice's own 500 KB.
 4. Validate `name` (`^[A-Za-z_][A-Za-z0-9_]*$`) and `options` against an
    allow-list of `faust2max6` options. Reject `-native` / `-opt native`:
    they would tune the code for the runner's CPU, not the user's.
-5. Write the source to `$name.dsp` **from an environment variable**, never
-   by expanding `${{ inputs.dsp }}` inside the script, which would let the
-   Faust text inject shell commands:
+5. Never expand `${{ inputs.dsp }}` inside a script, which would let the
+   Faust text inject shell commands. The first version passed the source
+   in an environment variable (`DSP: ${{ inputs.dsp }}`); since the log
+   prints each step's environment, `lib.sh` now reads `dsp` and `archive`
+   from the event payload instead (§7, "Privacy", and §11, "Sources from
+   the event"). `name`, `options` and `arch` stay in the environment:
 
    ```yaml
    - name: Compile
      env:
-       DSP: ${{ inputs.dsp }}
        NAME: ${{ inputs.name }}
        OPTIONS: ${{ inputs.options }}
        ARCH: ${{ inputs.arch }}
+       FAUSTOSX_FROM_EVENT: "1"
        MAXSDK: ${{ runner.temp }}/max-sdk-base/c74support
      run: scripts/build-max.sh
    ```
 
-6. `scripts/build-max.sh`:
+6. `scripts/build-max.sh`, on top of `lib.sh`, in outline:
 
    ```sh
-   set -euo pipefail
-   mkdir -p out && cd out
-   printf '%s\n' "$DSP" > "$NAME.dsp"
-   faust --version
-   faust2max6 -arch "$ARCH" $OPTIONS "$NAME.dsp"
-   lipo -info "$NAME~.mxo/Contents/MacOS/$NAME~"   # must list x86_64 arm64
+   . "$(dirname "$0")/lib.sh"          # set -euo pipefail, sources, checks
+   check_options                       # allow-list of faust2max6 options
+   prepare_sources                     # $NAME.dsp (and the archive's files)
+   run_logged faust2max6 -arch "$ARCH" ${OPTS[@]+"${OPTS[@]}"} "$NAME.dsp"
+   check_bundle_archs "$NAME~.mxo"     # every Mach-O file: x86_64 arm64
    codesign --verify --verbose "$NAME~.mxo"
-   ditto -c -k --norsrc --noextattr --keepParent . "../$NAME-max.zip"
+   package max                         # ditto -c -k --norsrc --noextattr
    ```
 
-   (`--noextattr`: otherwise the zip carries `._*` entries for the files'
-   extended attributes.)
+   `run_logged` runs the script under `env -u DSP -u ARCHIVE ...` (§9,
+   "Environment") with its output in `build.log`. `--noextattr`:
+   otherwise the zip carries `._*` entries for the files' extended
+   attributes.
 
    `faust2max6` produces `foo~.mxo`, plus `foo.maxpat` and `ui.js`
    unless `-nopatch` is given. The three go into the zip. `ditto` keeps
@@ -204,20 +211,21 @@ gh workflow run max.yml -R grame-cncm/faustservice-builds -f name=foo -f dsp="$(
 
 It passes a unique `tag` input and finds its run by the run name
 (`max <name> <tag>`) in `gh run list --workflow max.yml --json
-databaseId,displayTitle`, waits with `gh run watch`, and fetches the result
-with `gh run download <id> --name foo-max.zip`, which unpacks the zip into
-`foo/` and keeps the executable bit and the signature. It also removes the
-quarantine attribute from the downloaded `.mxo` (§8).
+databaseId,displayTitle`, waits with `gh run watch`, and fetches the raw
+zip with `gh api .../actions/artifacts/<id>/zip`, then unpacks it with
+`ditto -x -k`. `gh run download` would be enough for a Max external, but
+it drops the symbolic links of frameworks and breaks the signature of
+applications (§9, "Download"). It also removes the quarantine attribute
+from the downloaded bundle (§8).
 
 ## 6. Later extensions
 
 - **Larger programs.** Beyond the `archive` input (§4), a URL input
   pointing to the session on faustservice (§4, "Several files"), or a
   `push` trigger on a `dsp/` directory (one subdirectory per program).
-- **Other targets.** Same structure, one job per architecture script:
-  `faust2caqt`, `faust2au`, `faust2vst`, `faust2juce`… A matrix input
-  `target` selects the script. Each target needs its own SDK (JUCE, Qt,
-  VST3 SDK) installed or cached on the runner.
+- **Other targets.** Done: the `target` input of the action (§11) selects
+  the script, each with its SDK installed or cached on the runner
+  (§9, §10, §12).
 - **Intel test job.** Optionally load the external on an Intel runner
   (`macos-15-intel`) with a headless check (`dlopen` of the binary), to
   verify the x86_64 slice beyond `lipo -info`.
@@ -665,14 +673,15 @@ Implemented as `puredata.yml`, `supercollider.yml` and `csound.yml`
   `-soundfile` (Homebrew's libsndfile), `-d`, `-dm` (write to
   `/dev/tty`) for SuperCollider;
 - tested locally: the refusals and `thin_to_arch`; compiling against the
-  downloaded headers was refused by the local agent policy, so the first
-  builds are the GitHub runs.
+  downloaded headers was refused by the local agent policy, so the builds
+  were tested on GitHub only: the three targets produce universal
+  results there (run `41848501917`, with the Linux ones of §12).
 
 | target | script | needed on the runner | Intel + Apple Silicon |
 | :--- | :--- | :--- | :--- |
 | `puredata`, `puredata-poly` | `faust2puredata` (`-poly`) | `m_pd.h` from the Pure Data repository (`PUREDATA_MACSDK`); the external is linked with `-undefined suppress` | already: on an arm machine, so on `macos-15`, it builds both slices and merges them with `lipo` |
 | `supercollider` | `faust2supercollider -noprefix` | the `plugin_interface`, `common` and `server` headers of the SuperCollider repository (`SUPERCOLLIDER_HEADERS`) | already on arm; `-universal` also exists |
-| `csound` | `faust2csound` | the Csound headers (`CSOUND_MACSDK/Headers`); no library is linked (`-dynamiclib`) | no option: to check whether `CXXFLAGS="-arch x86_64 -arch arm64"` (appended to by the script) is enough, otherwise add `-arch` |
+| `csound` | `faust2csound` | the Csound headers (`CSOUND_HEADERS`); no library is linked (`-dynamiclib`) | no option, but `CXXFLAGS="-arch x86_64 -arch arm64"` (appended to by the script) is enough: checked on GitHub |
 | `plot` | `faust2plot` | nothing (a command-line tool) | same as `csound`, through `CXXFLAGS`, to check |
 
 faustservice splits two of them between Linux and the Mac today, and
@@ -705,7 +714,8 @@ faustservice splits two of them between Linux and the Mac today, and
   it passes to qmake as `LIBS` only, goes in `CXXFLAGS`, and the path of
   `libOSCFaust.a` (`faust -libdir`) in `LFLAGS`; it appends its own flags
   to both. The proper fix is in `faust2jaqt`. Tested
-  locally with Qt 6.12 and JACK 1.9.21 (JackOSX). Universal builds would
+  locally with Qt 6.12 and JACK 1.9.21 (JackOSX), and on GitHub with
+  Qt 6.8.3 and Homebrew's JACK. Universal builds would
   need a universal `libjack` on the runner and `-arch` in `faust2jaqt`.
 - **Unity `osx`, `ios`, `all` (`faust2unity`).** These makefiles still
   call `remoteOSX`, the SSH helper of the former Mac, while the
@@ -769,31 +779,33 @@ Implemented as `juce.yml` and `scripts/build-juce.sh`:
   `-jucemodulesdir`, and `-soundfile` until it is tested with the CMake
   build;
 - tested locally up to CMake only: building downloaded JUCE code here
-  was refused by the local agent policy, so the first full build is the
-  GitHub run.
+  was refused by the local agent policy, so the full builds were tested
+  on GitHub: universal AU, VST3 and Standalone in 4 to 5 minutes, JUCE
+  being compiled in every run.
 
 ### For every new target
 
 - An options allow-list per script, as for Max and caqt: refuse the
   options that link libraries built for arm64 only and those taking a
   path.
-- Stay on an arm64 runner (`macos-15`): on an Intel Mac, `faustoptflags`
-  adds `-march=native`, which would tune the code for the runner's CPU.
+- On macOS, stay on an arm64 runner (`macos-15`): on an Intel Mac,
+  `faustoptflags` adds `-march=native`, which would tune the code for the
+  runner's CPU. Linux and Windows builds are native (§12).
 - One workflow per script, `build-<target>.sh` on top of `lib.sh`, the
   SDK headers fetched at a pinned commit and cached when they are large.
 
 ### Order
 
-1. `puredata`, `supercollider`: the scripts already build both
-   architectures, only the headers are missing.
-2. `csound`, `plot`.
-3. `jack-qt`, after adding `-arch` to `faust2jaqt`.
+JUCE plugins came first: they need no SDK beyond JUCE itself and cover
+AU, VST3 and Standalone at once. Then:
+
+1. Done: `puredata`, `supercollider`.
+2. Done: `csound`. To do: `plot`.
+3. Done for Apple Silicon: `jack-qt`. Universal once `faust2jaqt` has
+   `-arch` and the runner a universal `libjack`.
 4. Unity, together with the fix of its iOS part.
 5. The decision on `vst` / `vsti` (VST3 through `faust2juce` is the
    candidate replacement).
-
-JUCE plugins come first, before this order: they need no SDK beyond
-JUCE itself and cover AU, VST3 and Standalone at once.
 
 ## 11. The action, for other repositories
 
@@ -804,8 +816,9 @@ For a project compiling its own Faust programs, this is plainly the use
 GitHub's terms allow (§8, "Terms of use").
 
 - **Inputs.** `target`, `dsp` (path of a `.dsp` file of the workspace),
-  `name`, `options`, `arch`, `faust-ref` and the versions `qt`, `juce`,
-  `pd`, `sc`, `csound`. **Outputs:** `zip`, `log`, `name`,
+  `dsp-from-event`, `name`, `options`, `arch` (default `auto`),
+  `faust-ref` and the versions `qt`, `juce`, `pd`, `sc`, `csound`.
+  **Outputs:** `zip`, `log`, `name`, `arch` (what was built),
   `faust-commit`. The caller uploads or publishes the zip.
 - **Sources from a file.** `lib.sh` takes `DSP_FILE`: the `.dsp` file is
   copied as `<name>.dsp`, with the regular files next to it whose names
@@ -827,12 +840,15 @@ GitHub's terms allow (§8, "Terms of use").
   through `$GITHUB_ACTION_PATH`; the standalone `setup-*` actions call the
   same scripts (`$GITHUB_ACTION_PATH/../scripts/setup`), so there is
   one copy of each installation.
-- **Runner.** The action stops unless it runs on arm64 macOS
-  (`runs-on: macos-15`): the universal builds rely on it (§10, "For every
-  new target").
+- **Runner.** The first step checks that the target builds on the
+  runner's system and stops otherwise, naming the right `runs-on`: arm64
+  macOS (`macos-15`) for the macOS targets, whose universal builds rely
+  on it (§10, "For every new target"); Linux x86_64 or arm64 and Windows
+  x64 for the targets of §12.
 - **Paths.** Each build goes to `$RUNNER_TEMP/faustosx/<target>-<name>`,
-  so a job can build several targets. The cache keys and paths are those
-  of the former workflows, whose caches the action reuses.
+  so a job can build several targets. The Faust cache key holds the
+  system and the architecture (`faust-<os>-<arch>-<commit>`, since §12),
+  so the caches of the former macOS workflows are not reused.
 - **Tests.** `test-action.yml` (started by hand) runs the action on
   `tests/withlib/withlib.dsp` for every target and checks that the zip
   holds the sources, `mylib.lib` included. Locally: `DSP_FILE` (absolute,
@@ -936,12 +952,15 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
 5. faustservice integration (§7).
 6. Signing and notarization, if the binaries are to be distributed.
 7. `faust2caqt` (§9): done, universal applications built on GitHub with
-   Qt 6.8.3. `-arch` added to `faust2caqt` in Faust, to commit to
-   `master-dev`; `build-caqt.sh` uses it once there. To do: run the
+   Qt 6.8.3. `-arch` is in `faust2caqt` on `master-dev` (Faust commit
+   `8b18a88ee`), and `build-caqt.sh` uses it. To do: run the
    applications on an Apple Silicon and an Intel Mac, test `-effect auto`.
-8. The other macOS targets of faustservice, in the order of §10.
-9. The action for other repositories (§11): done, tagged `v1.0.0` / `v1`;
-   to do, the Marketplace.
+8. The other macOS targets of faustservice, in the order of §10: done
+   for `puredata`, `supercollider`, `csound`, `jack-qt` (Apple Silicon),
+   and JUCE plugins added; to do, `plot`, Unity, the decision on `vst` /
+   `vsti`.
+9. The action for other repositories (§11): done, tagged `v1.0.0`; to
+   do, the Marketplace.
 10. Linux and Windows targets (§12): done for `lv2`, `juce`, `puredata`,
     `supercollider`, `csound` on Linux and `juce` on Windows; tagged
     `v1.1.0`, `v1` moved to it. faustservice-builds stays on `v1.0.0`
