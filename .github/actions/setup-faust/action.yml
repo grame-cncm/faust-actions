@@ -33,9 +33,12 @@ runs:
 
     # The prefix is under RUNNER_TEMP, whose path is the same on every run of
     # a given runner image, so the restored tree finds its own files again.
+    # Restore and save are separate steps: actions/cache saves only when the
+    # whole job succeeds, and a job fails whenever the user's program does
+    # not compile, which would throw away a Faust build that succeeded.
     - name: Restore Faust
       id: cache
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: ${{ steps.rev.outputs.prefix }}
         key: faust-${{ runner.os }}-${{ runner.arch }}-${{ steps.rev.outputs.sha }}
@@ -57,6 +60,13 @@ runs:
         git submodule update -q --init --recursive --depth 1
         make
         make install PREFIX="$PREFIX"
+
+    - name: Save Faust
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.rev.outputs.prefix }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}
 
     - name: Add Faust to the PATH
       shell: bash
