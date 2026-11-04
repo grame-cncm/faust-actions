@@ -330,7 +330,6 @@ runs:
         OUT: ${{ steps.paths.outputs.out }}
         SCRIPTS: ${{ steps.paths.outputs.scripts }}
         MAXSDK: ${{ runner.temp }}/max-sdk-base/c74support
-        FAUST_COMMIT: ${{ steps.paths.outputs.faust_sha }}
         QTDIR: ${{ runner.temp }}/Qt/${{ inputs.qt }}/macos
         JUCEDIR: ${{ runner.temp }}/JUCE
         PUREDATA_MACSDK: ${{ runner.temp }}/pd
