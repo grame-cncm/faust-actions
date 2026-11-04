@@ -346,12 +346,58 @@ In the faustservice Dockerfile:
 - During a GitHub incident (as on 2026-11-04, "Git Operations" and
   "Actions" degraded), runs fail or wait. `githubOSX` can fall back to
   `dockerOSX` when the dispatch itself fails.
-- **Privacy.** On a public repository, the inputs of every run are
-  public: the Actions log shows the `DSP` environment variable in the
-  step header, and the artifacts contain the source. faustservice does
-  not publish its users' code today. Either announce it in the IDE export
-  dialog, or make the repository private, which makes the runs paid
-  (about $0.06 per compilation, see §8, "Cost").
+- **Privacy.** See "Privacy" below.
+
+### Privacy
+
+faustservice does not publish its users' code today. On a public
+repository, a run is visible to anyone while it exists: its page and its
+log (the web page is public; the log is downloadable by any GitHub
+account, `GET .../runs/<id>/logs` answers 403 without a token), and its
+artifacts, which hold the sources next to the binary.
+
+- **Not in the log any more.** The log prints, in the header of each
+  step, the environment given to it: with `DSP: ${{ inputs.dsp }}` the
+  whole source was in the log (checked on a `puredata` run). The
+  workflows no longer pass `dsp` and `archive` in the environment;
+  `lib.sh` reads them from the event payload (`$GITHUB_EVENT_PATH`, with
+  `jq`, or Python when `jq` is missing), which the log does not show.
+  `name`, `options` and `tag` remain visible, in the step header and in
+  the run name.
+- **Deleted after download.** Once `githubOSX` has the zip, it deletes the
+  whole run with the same token (permission *Actions: read and write*):
+  `DELETE /repos/grame-cncm/faustosxservice/actions/runs/<run_id>`, which
+  removes the run, its log and its artifacts. Finer:
+  `DELETE .../actions/artifacts/<id>` and `DELETE .../actions/runs/<id>/logs`.
+  If the deletion fails, the 7-day retention of the artifacts and the log
+  retention of the repository (Settings > Actions, to lower to 1 day)
+  are the fallback. The caches hold Faust, Qt, JUCE and headers only,
+  never user code. What GitHub keeps internally after a deletion is not
+  documented.
+- **The window.** Between the dispatch and the deletion (about 30 s to
+  5 minutes, more when runners are scarce), someone watching the Actions
+  tab can see the run name (program name and tag) and download the
+  artifact. Use a neutral `name` (for instance the session key) and set
+  the program name back when unpacking, to hide even the name.
+- **Encryption, to remove the window** (not implemented):
+  - a repository secret `FAUSTOSX_KEY` (random, 32 bytes, base64), also
+    given to faustservice next to the GitHub token;
+  - `githubOSX` encrypts the archive before sending it:
+    `openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:FAUSTOSX_KEY | base64`,
+    in a new `encrypted` input; `lib.sh` decrypts it before
+    `unpack_archive`, with the secret passed as an environment variable
+    (GitHub masks secrets in logs);
+  - the build script encrypts the zip the same way before the upload,
+    and `githubOSX` decrypts it after the download;
+  - errors in `build.log` hold the user's source lines (Faust messages
+    quote them): encrypt the log artifact too;
+  - cost: base64 grows the payload by a third against the 65,535-character
+    input limit, so about 36 KB of compressed sources at most.
+  Only a run with a neutral name and opaque data then remains visible,
+  for a few minutes. This does not settle the question of GitHub's terms
+  (§8, "Terms of use").
+- Otherwise, a private repository makes the runs paid (about $0.06 per
+  compilation, see §8, "Cost").
 
 ### Steps
 
