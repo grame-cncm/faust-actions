@@ -861,7 +861,8 @@ GitHub's terms allow (§8, "Terms of use").
   Max external; the log holds no line of the source.
 - **Versions.** Annotated tags, never moved: `v1.0.0` (2026-11-04,
   macOS), `v1.1.0` (2026-11-04, Linux and Windows added, `arch: auto`),
-  `v1.2.0` (2026-11-04, `max` on Windows);
+  `v1.2.0` (2026-11-04, `max` on Windows), `v1.2.1` (2026-11-04, relies
+  on the Windows fixes of Faust `21a913abf`);
   and
   `v1`, moved to each compatible `v1.x.y` (`git tag -fa v1 <commit>`,
   `git push -f origin v1`). An incompatible change of the inputs or
@@ -1002,4 +1003,4 @@ Added on 2026-11-04 (commits `983a2cd`, `d9c891c`):
     `supercollider`, `csound` on Linux and `juce` on Windows; tagged
     `v1.1.0`, `v1` moved to it. faustservice-builds stays on `v1.0.0`
     (its targets are macOS ones, unchanged). Then `max` on Windows, tagged
-    `v1.2.0`, `v1` moved to it.
+    `v1.2.0`; `v1.2.1` once Faust carried the fixes, `v1` moved to it.
