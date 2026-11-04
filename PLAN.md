@@ -843,9 +843,13 @@ GitHub's terms allow (§8, "Terms of use").
   `grame-cncm/faust-actions@c264159`, the action builds Faust in that
   repository's cache (about 2 minutes of the run) and returns a universal
   Max external; the log holds no line of the source.
-- **To do.** A release tag (`v1`, moved along with `v1.x.y`) for callers
-  to pin, then the GitHub Marketplace (the `branding` is set); signing
-  and notarization as an option, with the caller's secrets.
+- **Versions.** Annotated tags: `v1.0.0` (2026-11-04), never moved, and
+  `v1`, moved to each compatible `v1.x.y` (`git tag -fa v1 <commit>`,
+  `git push -f origin v1`). An incompatible change of the inputs or
+  outputs starts `v2`. Callers pin `@v1`, `@v1.x.y` or a commit.
+- **To do.** The GitHub Marketplace (needs a GitHub release; the
+  `branding` is set); signing and notarization as an option, with the
+  caller's secrets.
 
 ## 12. Milestones
 
@@ -864,5 +868,5 @@ GitHub's terms allow (§8, "Terms of use").
    `master-dev`; `build-caqt.sh` uses it once there. To do: run the
    applications on an Apple Silicon and an Intel Mac, test `-effect auto`.
 8. The other macOS targets of faustservice, in the order of §10.
-9. The action for other repositories (§11): done; to do, a release tag
-   and the Marketplace.
+9. The action for other repositories (§11): done, tagged `v1.0.0` / `v1`;
+   to do, the Marketplace.

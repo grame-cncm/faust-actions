@@ -29,7 +29,7 @@ jobs:
     runs-on: macos-15            # an arm64 macOS runner is required
     steps:
       - uses: actions/checkout@v7
-      - uses: grame-cncm/faust-actions@main
+      - uses: grame-cncm/faust-actions@v1
         id: faust
         with:
           target: juce
@@ -41,8 +41,8 @@ jobs:
           archive: false         # keeps the zip as it is (see "Download" below)
 ```
 
-Pin a commit (`@<sha>`) or, once there is one, a release tag, rather
-than `@main`.
+`@v1` follows the compatible 1.x.y releases; pin `@v1.0.0`, or a commit
+(`@<sha>`), to keep exactly the same version.
 
 | input | meaning | default |
 | :--- | :--- | :--- |
@@ -76,8 +76,8 @@ The `setup-faust`, `setup-qt` and `setup-juce` actions can also be used
 alone, for instance to run another `faust2xxx` script:
 
 ```yaml
-- uses: grame-cncm/faust-actions/setup-faust@main
-- uses: grame-cncm/faust-actions/setup-qt@main
+- uses: grame-cncm/faust-actions/setup-faust@v1
+- uses: grame-cncm/faust-actions/setup-qt@v1
   id: qt
 ```
 
@@ -101,7 +101,7 @@ jobs:
   max:
     runs-on: macos-15
     steps:
-      - uses: grame-cncm/faust-actions@main
+      - uses: grame-cncm/faust-actions@v1
         id: faust
         with:
           target: max
