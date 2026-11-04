@@ -33,12 +33,18 @@ The `-arch` / `-universal` option of `faust2max6` was added to `master-dev`
 on 2026-09-15 and is not in a numbered release yet. The workflow
 therefore builds Faust from `master-dev`:
 
-- `git clone --depth 1 --recursive -b master-dev https://github.com/grame-cncm/faust`
-  (the `libraries` submodule is required);
-- `make` then `sudo make install` (passwordless `sudo` on GitHub runners);
-- cache the installed tree with `actions/cache`, keyed on the `master-dev`
-  commit (`git ls-remote https://github.com/grame-cncm/faust master-dev`),
-  so the 10–15 minute compiler build only runs when `master-dev` moves;
+- resolve the `master-dev` commit
+  (`git ls-remote https://github.com/grame-cncm/faust refs/heads/master-dev`)
+  and fetch exactly that commit, with its submodules (the `libraries`
+  submodule is required);
+- `make` then `make install PREFIX=$RUNNER_TEMP/faust-install`, so the
+  whole installation is one directory, without `sudo`;
+- cache that directory, keyed on the commit, with separate
+  `actions/cache/restore` and `actions/cache/save` steps. The save runs right
+  after the build: a plain `actions/cache` saves only when the whole job
+  succeeds, and a job fails whenever the user's program does not compile.
+  The build (about 3 min 30 on `macos-15`) therefore runs once per
+  `master-dev` commit; a cache hit restores Faust in about 3 s;
 - print `faust --version` in the log: its `Source commit:` line identifies
   the compiler that produced each binary.
 
@@ -133,10 +139,12 @@ a single `.dsp`, not for local `import`s or soundfiles (see §6).
 gh workflow run max.yml -R <owner>/faustosxservice -f name=foo -f dsp="$(cat foo.dsp)"
 ```
 
-It then finds the run it just started (`gh run list --workflow max.yml
---limit 1 --json databaseId`), waits with `gh run watch`, and fetches the
-result with `gh run download <id> --name max-foo`. It also removes the
-quarantine attribute from the downloaded `.mxo` (§7).
+It passes a unique `tag` input and finds its run by the run name
+(`max <name> <tag>`) in `gh run list --workflow max.yml --json
+databaseId,displayTitle`, waits with `gh run watch`, and fetches the result
+with `gh run download <id> --name foo-max.zip`, which unpacks the zip into
+`foo/` and keeps the executable bit and the signature. It also removes the
+quarantine attribute from the downloaded `.mxo` (§8).
 
 ## 6. Later extensions
 
@@ -152,11 +160,159 @@ quarantine attribute from the downloaded `.mxo` (§7).
   (`macos-15-intel`) with a headless check (`dlopen` of the binary), to
   verify the x86_64 slice beyond `lipo -info`.
 - **Public service.** Running a workflow requires write access to the
-  repository. To let external users submit programs, put a small web
-  front-end in front of it that holds the GitHub token, applies rate limits
-  and returns the artifact link. The token must never reach the client.
+  repository. External users can fork the repository and run the workflow
+  in their fork, or go through a server that holds the GitHub token: the
+  existing faustservice, see §7. The token must never reach the client.
 
-## 7. Points to settle
+## 7. Use from faustservice
+
+[faustservice](https://github.com/grame-cncm/faustservice) (the remote
+compilation server behind the Faust IDE export, deployed as a docker image
+built from its `server` branch) can delegate its macOS Max targets to this
+workflow without any change to its C++ code.
+
+### How faustservice compiles for macOS today
+
+- A request `<key>/osx/max/binary.zip` makes the server run
+  `make -C <session>/osx/max binary.zip` (`make()` in `server.cpp`), one
+  thread per connection, waiting for `make` to finish. If no `binary.zip`
+  file exists afterwards, the user gets a generic "cannot compile" page;
+  if it exists, it is sent. `make` sees an existing `binary.zip` as up to
+  date, so a session compiles a target once.
+- Faust errors are caught earlier: at upload, the server runs `faust` on
+  Linux and stores the messages in `<key>/errors.log`. A macOS target thus
+  only fails on C++, SDK or packaging problems.
+- The makefiles do not compile for macOS themselves; they call a helper
+  script. `makefiles/dockerosx/Makefile.max` is:
+
+  ```make
+  binary.zip : $(faustfile)
+  	dockerOSX faust2max6 $(faustfile) $(OPT)
+  	zip -r binary.zip *
+  ```
+
+  `$(OPT)` holds the options of the program's `declare options`, filtered
+  by `faustOptions.cpp`. The helper has been swapped once already:
+  `bin/remoteOSX` copied the files over SSH to a Mac and ran the script
+  there; `bin/dockerOSX` now runs it in the `faust:cross-osx` image
+  (osxcross on Linux). The Dockerfile installs `dockerOSX` and replaces
+  `makefiles/osx` with `makefiles/dockerosx`.
+
+### Integration: a `githubOSX` helper
+
+A third helper, `bin/githubOSX`, with the same command line as
+`remoteOSX`: the script name first, then options and `.dsp` / `.lib`
+files.
+
+1. Collect the arguments: the script (only `faust2max6` at first; any
+   other script fails at once), the options, the `.dsp` file and any
+   `.lib` files of the session.
+2. Build the inputs: `name` from the `.dsp` file name, `options`, and the
+   source. A single `.dsp` without `.lib` goes in the `dsp` input; several
+   files go in an `archive` input (see "Changes in this repository"
+   below).
+3. Create a unique `tag` (session key plus a random suffix) and start the
+   run through the REST API:
+   `POST /repos/grame-cncm/faustosxservice/actions/workflows/max.yml/dispatches`
+   with `{"ref": "main", "inputs": {...}}`. `curl` and `jq` are enough; `gh`
+   is not needed in the image.
+4. Find the run: `GET .../actions/workflows/max.yml/runs?event=workflow_dispatch`,
+   keep the run whose `display_title` contains the tag; retry for a few
+   seconds, the run appears with a delay.
+5. Poll `GET .../actions/runs/<id>` every 5 s until `status` is
+   `completed`, with an overall limit (300 s to start with); past the
+   limit, cancel the run (`POST .../actions/runs/<id>/cancel`) and fail.
+6. On success, list the run's artifacts, download `<name>-max.zip` with
+   `GET .../actions/artifacts/<id>/zip` (uploaded with `archive: false`,
+   so the response is the zip itself), write it to a temporary file, then
+   rename it to `binary.zip`: the server must never see a partial
+   `binary.zip`, which it would send as a valid result.
+7. On failure, download `<name>-log` (a zip holding `build.log`), copy the
+   log to stderr, which goes to the server's log, and exit with a non-zero
+   status, so no `binary.zip` exists and the user gets the error page.
+
+The makefiles go in a new `makefiles/githubosx/` directory, one per Max
+target, without the final `zip -r`, since `githubOSX` writes `binary.zip`
+itself:
+
+```make
+faustfile ?= $(wildcard *.dsp)
+
+binary.zip : $(faustfile)
+	githubOSX faust2max6 $(faustfile) $(wildcard *.lib) $(OPT)
+```
+
+with `-mc`, `-nvoices 16`, `-midi` added for `max-mc`, `max-poly` and
+`max-poly-mc` as in `makefiles/dockerosx`. The zip holds a `<name>/`
+folder with `<name>~.mxo`, `<name>.maxpat`, `ui.js` and the source.
+
+In the faustservice Dockerfile:
+
+- install `bin/githubOSX` next to `dockerOSX`, plus `curl` and `jq` if
+  the base image lacks them;
+- after moving `makefiles/dockerosx` to `makefiles/osx`, copy the
+  `Makefile.max*` files of `makefiles/githubosx` over it. The other macOS
+  targets (Pure Data, SuperCollider, VST, Qt, Csound, plot) stay on
+  `dockerOSX` until this repository builds them.
+
+### GitHub token
+
+- A fine-grained personal access token, owner `grame-cncm`, repository
+  `faustosxservice` only, permission *Actions: read and write* (start,
+  read and cancel runs, download artifacts). It can do nothing else.
+- Given to the container at run time, never written into the image or a
+  repository: `docker run --env-file /etc/faustservice/github.env ...`,
+  with `FAUSTOSX_TOKEN=...` in that file (mode 600). `faustweb` runs
+  `make` with `system()`, so the variable reaches `githubOSX`.
+- Fine-grained tokens expire. Note the expiry date and renew it, or use a
+  GitHub App installation token, which does not expire but needs an app
+  registered on the organization.
+
+### Changes in this repository
+
+- An `archive` input: a `tar.gz` of the session's `.dsp` and `.lib`
+  files, base64-encoded. `build-max.sh` decodes it into the build
+  directory, refuses paths with `/` or `..` and anything that is not
+  `.dsp` or `.lib`, and requires exactly one `.dsp`, named after `name`.
+  All inputs together are limited to about 64 KB: `githubOSX` checks the
+  size first and fails with a clear message beyond it.
+- The options allow-list of `build-max.sh` must accept every option that
+  `faustOptions.cpp` lets through, or programs that compile today with
+  `dockerOSX` would be refused. Compare the two lists and align them.
+
+### Delays and limits
+
+- A run takes about 25 s with a warm cache, plus the wait for a macOS
+  runner (often 10–30 s, more when GitHub is loaded), plus about 3 min 30
+  once after each `master-dev` commit. The HTTP front-end in front of
+  `faustweb` and the Faust IDE must wait at least 5 minutes, or the IDE
+  must use `<key>/osx/max/precompile` and then fetch `binary.zip`.
+- The number of macOS jobs running at the same time is limited by the
+  organization's GitHub plan (5 on the free plan); further requests queue.
+- During a GitHub incident (as on 2026-11-04, "Git Operations" and
+  "Actions" degraded), runs fail or wait. `githubOSX` can fall back to
+  `dockerOSX` when the dispatch itself fails.
+- **Privacy.** On a public repository, the inputs of every run are
+  public: the Actions log shows the `DSP` environment variable in the
+  step header, and the artifacts contain the source. faustservice does
+  not publish its users' code today. Either announce it in the IDE export
+  dialog, or make the repository private, which makes macOS minutes paid
+  (about 10× Linux minutes).
+
+### Steps
+
+1. In this repository: `archive` input, options aligned with
+   `faustOptions.cpp`.
+2. `bin/githubOSX`, tested by hand against GitHub with a token, on a
+   single `.dsp`, on a `.dsp` with a `.lib`, on a program that fails to
+   compile in C++, and with an overall limit too short to finish.
+3. `makefiles/githubosx/` and the Dockerfile changes, on a branch of
+   faustservice made from `server`.
+4. Deploy on a test instance; export from the Faust IDE to the four Max
+   targets; check the delays and that the externals load in Max.
+5. Then the other macOS targets, as this repository learns to build them.
+
+## 8. Points to settle
 
 - **Gatekeeper.** A downloaded zip is quarantined by macOS. With only an
   ad-hoc signature, users must run
@@ -181,17 +337,20 @@ quarantine attribute from the downloaded `.mxo` (§7).
 - **Cost.** macOS minutes are free on a public repository. On a private
   one they count about 10× Linux minutes. The Faust cache is what keeps a
   job at a few minutes.
-- **Repository visibility.** Public (free minutes, but logs and artifacts
-  of every run are visible to anyone) or private (paid minutes, private
-  user code)?
+- **Repository visibility.** The repository is public: free minutes, but
+  the logs and artifacts of every run are visible to anyone. To revisit
+  if user code must stay private (§7, privacy).
 
-## 8. Milestones
+## 9. Milestones
 
-1. Repository, `max.yml` with Faust built from `master-dev`, manual
-   `workflow_dispatch` on `tests/osc.dsp`; check `lipo -info` lists both
-   architectures and the external loads in Max on an Apple Silicon Mac.
+1. Done: repository, `max.yml` with Faust built from `master-dev`, manual
+   `workflow_dispatch` on `tests/osc.dsp`; `lipo -archs` lists
+   `x86_64 arm64` and the external loads in Max.
 2. Same external tested on an Intel Mac.
-3. Faust and Max SDK caches; measure build time with a warm cache.
-4. Option validation, error log artifact, `scripts/faustosx` client.
-5. Signing and notarization, if the binaries are to be distributed.
-6. Further targets (`faust2caqt`, `faust2au`…), then multi-file input.
+3. Done for Faust: cache saved right after the build, run time about 25 s
+   with a warm cache. The Max SDK clone takes about 1 s and needs no cache.
+4. Done: option validation and error log artifact. To do: the
+   `scripts/faustosx` client.
+5. faustservice integration (§7).
+6. Signing and notarization, if the binaries are to be distributed.
+7. Further targets (`faust2caqt`, `faust2au`…).
