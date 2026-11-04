@@ -380,9 +380,40 @@ In the faustservice Dockerfile:
   which users will not have: reject it.
 - **Minimum macOS.** `faust2max6` builds with `-mmacosx-version-min=10.9`;
   check which Max versions and macOS versions the result actually loads on.
-- **Cost.** Standard GitHub-hosted runners are free on a public
-  repository, and do not draw on the included usage. On a private
-  repository (GitHub pricing since 2026-01-01, checked 2026-11-04):
+- **Cost on a public repository.** Standard GitHub-hosted runners, which
+  include `macos-15`, are free on a public repository, and do not draw on
+  the included usage: compilations cost nothing, whatever their number.
+  What remains are limits (checked 2026-11-04 on the
+  [Actions limits](https://docs.github.com/en/actions/reference/limits)
+  page):
+
+  - at most 5 macOS jobs at the same time on the Free, Pro and Team plans
+    (50 on Enterprise), out of 20 jobs in all on Free; further runs wait
+    in the queue. GitHub Support can raise these limits;
+  - at most 6 hours per job, far above the minute a compilation takes;
+  - artifact storage of 500 MB and cache storage of 10 GB on the Free
+    plans, as on a private repository;
+  - 500 workflow runs queued per 10 seconds per repository, and 5,000 REST
+    API requests per hour for the token `githubOSX` uses (each compilation
+    needs about 20: dispatch, a poll every 5 s, artifact list, download).
+
+  **Terms of use.** The
+  [GitHub Terms for Additional Products](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features)
+  say that Actions should not be used, with GitHub-hosted runners, for
+  "any other activity unrelated to the production, testing, deployment,
+  or publication of the software project associated with the
+  repository", nor to provide a service offering Actions for commercial
+  purposes, nor as "part of a serverless application". faustservice is
+  not commercial, but compiling its users' programs on demand is not the
+  development of faustosxservice itself: this is a grey area, the same on
+  a public or a private repository, and misuse may lead to disabled
+  repositories. Before opening it to faustservice users, ask GitHub
+  Support whether this use is acceptable, and keep `dockerOSX` as a
+  fallback. A self-hosted macOS runner (a Mac at GRAME registered on the
+  repository) is not covered by that clause and costs no runner minutes.
+
+- **Cost on a private repository** (GitHub pricing since 2026-01-01,
+  checked 2026-11-04):
 
   - the included usage is a dollar amount per month, not a number of
     minutes: $12 on GitHub Free for organizations (the plan of
