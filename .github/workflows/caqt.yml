@@ -1,0 +1,87 @@
+name: CoreAudio + Qt application
+
+# One run compiles one Faust program with faust2caqt and returns the
+# application, Qt included, as a zip artifact named <name>-caqt.zip.
+run-name: caqt ${{ inputs.name }} ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dsp:
+        description: Faust source code (or use archive)
+        default: ""
+        type: string
+      archive:
+        description: Instead of dsp, base64 of a tar.gz holding <name>.dsp and the files it imports, without directories
+        default: ""
+        type: string
+      name:
+        description: Program name, without .dsp
+        default: foo
+        type: string
+      options:
+        description: Extra faust2caqt options (for instance "-midi -nvoices 8")
+        default: ""
+        type: string
+      arch:
+        description: Architecture of the application
+        default: universal
+        type: choice
+        options: [universal, arm64, x86_64]
+      qt:
+        description: Qt version
+        default: 6.8.3
+        type: string
+      tag:
+        description: Free text added to the run name, so a client can find its run
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  caqt:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Faust
+        uses: ./.github/actions/setup-faust
+
+      - name: Set up Qt
+        id: qt
+        uses: ./.github/actions/setup-qt
+        with:
+          version: ${{ inputs.qt }}
+
+      # Inputs reach the script through the environment only: expanding them
+      # inside the script text would let the Faust source run shell commands.
+      - name: Compile
+        env:
+          DSP: ${{ inputs.dsp }}
+          ARCHIVE: ${{ inputs.archive }}
+          NAME: ${{ inputs.name }}
+          OPTIONS: ${{ inputs.options }}
+          ARCH: ${{ inputs.arch }}
+          QTDIR: ${{ steps.qt.outputs.qtdir }}
+          OUT: ${{ runner.temp }}/out
+        run: scripts/build-caqt.sh
+
+      - name: Upload the application
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/out/${{ inputs.name }}-caqt.zip
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.name }}-log
+          path: ${{ runner.temp }}/out/build.log
+          retention-days: 7
+          if-no-files-found: ignore

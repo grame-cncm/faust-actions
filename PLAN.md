@@ -58,12 +58,17 @@ the version.
 faustosxservice/
 ├── .github/
 │   ├── actions/setup-faust/   # composite action: build or restore Faust
-│   └── workflows/max.yml      # faust2max6 job
+│   ├── actions/setup-qt/      # composite action: install or restore Qt
+│   ├── workflows/max.yml      # faust2max6 job
+│   └── workflows/caqt.yml     # faust2caqt job (§9)
 ├── scripts/
+│   ├── lib.sh                 # shared: inputs, archive, logs, checks, zip
 │   ├── build-max.sh           # runs faust2max6, packages the result
-│   └── faustosx               # client: send a .dsp, wait, download
+│   ├── build-caqt.sh          # runs faust2caqt, packages the result
+│   └── faustosx               # client: send a .dsp, wait, download (to do)
 ├── tests/
-│   └── osc.dsp                # smoke-test program
+│   ├── osc.dsp                # smoke-test program
+│   └── withlib/               # program importing a local .lib (archive)
 └── README.md
 ```
 
@@ -463,7 +468,60 @@ In the faustservice Dockerfile:
   the logs and artifacts of every run are visible to anyone. To revisit
   if user code must stay private (§7, privacy).
 
-## 9. Milestones
+## 9. The `caqt.yml` workflow
+
+`caqt.yml` compiles a program with `faust2caqt` into a CoreAudio + Qt
+application, universal by default. It has the inputs of `max.yml`
+(`dsp` or `archive`, `name`, `options`, `arch`, `tag`) plus `qt`, the Qt
+version, and returns `<name>-caqt.zip`, holding a `<name>/` folder with
+`<name>.app` and the sources, plus `<name>-log`.
+
+- **Architectures.** `faust2caqt` has no `-arch` option: `qmake` builds
+  for the machine it runs on. `build-caqt.sh` writes a `.qmake.conf` with
+  `QMAKE_APPLE_DEVICE_ARCHS = x86_64 arm64` in its build directory:
+  `qmake` reads `.qmake.conf` in the project directory and its parents,
+  and `faust2caqt` creates its project in a temporary directory under the
+  current one. Checked: the same build without the file gives an arm64
+  application only. The cleaner fix is an `-arch` option in `faust2caqt`
+  itself, as in `faust2max6`; the `.qmake.conf` then goes away.
+- **Qt.** A universal application needs a universal Qt. The
+  `setup-qt` action installs it with `aqtinstall` 3.3.0 (Qt's online
+  packages for macOS are universal; Homebrew's Qt is arm64 only), in a
+  virtual environment since the runner's Python refuses system-wide
+  `pip` installs, and caches it like Faust. Default: Qt 6.8.3, the last
+  open-source 6.8 LTS, which runs on macOS 12 and later; Qt 6.12 is
+  built for macOS 14.4 at least (`minos 14.4` in `QtCore`), so the
+  application would not start on older Macs. `macdeployqt` (run by
+  `faust2caqt`) copies the frameworks and plugins into the application.
+- **Checks.** `check_bundle_archs` (in `lib.sh`) requires the expected
+  slices in every Mach-O file of the bundle: 18 files with Qt 6.12 (the
+  binary, 7 frameworks, 10 plugins), not only the main binary. Then
+  `codesign --verify --deep --strict` on the ad-hoc signature that
+  `faust2caqt` applies.
+- **Options.** Allowed: `-midi`, `-me`, `-nvoices <n>`, `-effect auto`,
+  `-preset auto`, and the Faust options `-double -vec -dfs -fun -mcd -lv
+  -vs <n> -ftz <n>`. Refused: `-opt` (runs `faustbench-llvm`, tunes for
+  the runner's CPU); `-httpd`, `-qrcode`, `-osc` (link `libHTTPDFaust.a`,
+  `libmicrohttpd`, `libOSCFaust.a`, built for the runner's architecture
+  only); `-soundfile`, `-resample` (link Homebrew's `libsndfile` and
+  `libsamplerate`, arm64 only and shared libraries users do not have);
+  `-I`, `-effect <file>`, `-preset <dir>` (paths); `-nodeploy` (leaves Qt
+  out of the application).
+- **Environment.** The `faust2xxx` scripts are run without the variables
+  of these scripts (`DSP`, `ARCHIVE`, `OPTIONS`, `NAME`, `ARCH`, `OUT`):
+  `faust2caqt` appends to an `OPTIONS` variable it never resets, so
+  `OPTIONS="-midi -nvoices 4"` in the workflow's environment made it pass
+  `4` to `faust` as a file name; `faust2max6` reads `ARCH` likewise.
+- **Size.** With Qt 6.12, `osc.app` takes 55 MB, 23 MB zipped: about 20
+  compilations per day fit in the 500 MB artifact storage with a 7-day
+  retention. Lower `retention-days` if needed.
+- **Tested locally** (Qt 6.12.0 universal, Faust `78565936d`): `osc`
+  universal and arm64 only, `withlib` through `archive` with
+  `-midi -nvoices 4`, `-preset auto -me -double`, the refusals, and the
+  zip extracted with `ditto -x -k` keeps the framework symlinks and a
+  valid signature. Not tested: `-effect auto`, running the application.
+
+## 10. Milestones
 
 1. Done: repository, `max.yml` with Faust built from `master-dev`, manual
    `workflow_dispatch` on `tests/osc.dsp`; `lipo -archs` lists
@@ -475,4 +533,6 @@ In the faustservice Dockerfile:
    `scripts/faustosx` client.
 5. faustservice integration (§7).
 6. Signing and notarization, if the binaries are to be distributed.
-7. Further targets (`faust2caqt`, `faust2au`…).
+7. `faust2caqt` (§9): workflow written and tested locally; to check on
+   GitHub with Qt 6.8.3, then on an Intel Mac.
+8. Further targets (`faust2au`, `faust2vst`, `faust2juce`…).

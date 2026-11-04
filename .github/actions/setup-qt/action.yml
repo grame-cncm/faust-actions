@@ -1,0 +1,68 @@
+name: Set up Qt
+description: >
+  Install a universal (x86_64 + arm64) Qt for macOS with aqtinstall, or
+  restore it from the cache, and give its prefix.
+
+inputs:
+  version:
+    description: Qt version (6.8.3 is the last open-source 6.8 LTS; it runs on macOS 12 and later)
+    default: 6.8.3
+
+outputs:
+  qtdir:
+    description: Qt prefix, holding bin/qmake and bin/macdeployqt
+    value: ${{ steps.paths.outputs.qtdir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Qt paths
+      id: paths
+      shell: bash
+      env:
+        QT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        [[ "$QT_VERSION" =~ ^6\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid Qt version '$QT_VERSION'"; exit 1; }
+        echo "root=$RUNNER_TEMP/Qt" >> "$GITHUB_OUTPUT"
+        echo "qtdir=$RUNNER_TEMP/Qt/$QT_VERSION/macos" >> "$GITHUB_OUTPUT"
+
+    # Restore and save are separate steps, as for Faust: actions/cache saves
+    # only when the whole job succeeds.
+    - name: Restore Qt
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.paths.outputs.root }}
+        key: qt-${{ runner.os }}-${{ inputs.version }}-aqt3.3.0
+
+    # Qt's online packages for macOS ("clang_64") are universal binaries.
+    # aqtinstall goes into its own virtual environment: the runner's Python
+    # refuses system-wide pip installs (PEP 668).
+    - name: Install Qt
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        QT_VERSION: ${{ inputs.version }}
+        ROOT: ${{ steps.paths.outputs.root }}
+      run: |
+        set -euo pipefail
+        python3 -m venv "$RUNNER_TEMP/aqt-venv"
+        "$RUNNER_TEMP/aqt-venv/bin/pip" install -q aqtinstall==3.3.0
+        "$RUNNER_TEMP/aqt-venv/bin/aqt" install-qt mac desktop "$QT_VERSION" clang_64 --outputdir "$ROOT"
+
+    - name: Save Qt
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.paths.outputs.root }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+
+    - name: Check Qt
+      shell: bash
+      env:
+        QTDIR: ${{ steps.paths.outputs.qtdir }}
+      run: |
+        set -euo pipefail
+        echo "Qt $("$QTDIR/bin/qmake" -query QT_VERSION) in $QTDIR"
+        echo "QtCore architectures: $(lipo -archs "$QTDIR/lib/QtCore.framework/QtCore")"

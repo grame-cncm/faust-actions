@@ -55,6 +55,25 @@ quarantine attribute before Max can load it:
 xattr -dr com.apple.quarantine "osc~.mxo"
 ```
 
+## Compile a CoreAudio + Qt application
+
+```sh
+gh workflow run caqt.yml -f name=osc -f dsp="$(cat tests/osc.dsp)"
+gh run watch
+gh run download --name osc-caqt.zip
+```
+
+Same inputs as `max.yml`, plus `qt` (Qt version, default `6.8.3`, which
+runs on macOS 12 and later). `options` takes `faust2caqt` options from
+the allow-list in `scripts/build-caqt.sh` (`-midi`, `-nvoices <n>`,
+`-effect auto`, `-preset auto`, `-me`...). The `<name>-caqt.zip`
+artifact holds `<name>/<name>.app`, Qt included, and the sources. Remove
+the quarantine attribute the same way:
+
+```sh
+xattr -dr com.apple.quarantine osc.app
+```
+
 ## How it works
 
 - `.github/actions/setup-faust` builds the Faust compiler from
