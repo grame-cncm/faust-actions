@@ -1,0 +1,92 @@
+name: Pure Data external
+
+# One run compiles one Faust program with faust2puredata and returns
+# the external (<name>~.pd_darwin) as a zip artifact named <name>-puredata.zip.
+run-name: puredata ${{ inputs.name }} ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dsp:
+        description: Faust source code (or use archive)
+        default: ""
+        type: string
+      archive:
+        description: Instead of dsp, base64 of a tar.gz holding <name>.dsp and the files it imports, without directories
+        default: ""
+        type: string
+      name:
+        description: Program name, without .dsp
+        default: foo
+        type: string
+      options:
+        description: Extra faust2puredata options
+        default: ""
+        type: string
+      arch:
+        description: Architecture of the result
+        default: universal
+        type: choice
+        options: [universal, arm64, x86_64]
+      pd:
+        description: Pure Data version whose m_pd.h is used (a tag of pure-data/pure-data)
+        default: 0.56-5
+        type: string
+      tag:
+        description: Free text added to the run name, so a client can find its run
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  puredata:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Faust
+        uses: ./.github/actions/setup-faust
+
+      # Externals only need m_pd.h; they are linked with -undefined suppress.
+      - name: Get m_pd.h
+        env:
+          PD_VERSION: ${{ inputs.pd }}
+        run: |
+          set -euo pipefail
+          [[ "$PD_VERSION" =~ ^[0-9]+\.[0-9]+-[0-9]+$ ]] || { echo "::error::invalid Pure Data version '$PD_VERSION'"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/pd"
+          curl -sSfL -o "$RUNNER_TEMP/pd/m_pd.h" "https://raw.githubusercontent.com/pure-data/pure-data/$PD_VERSION/src/m_pd.h"
+          grep -m1 -E 'define PD_(MAJOR|MINOR)_VERSION' "$RUNNER_TEMP/pd/m_pd.h"
+
+      # Inputs reach the script through the environment only: expanding them
+      # inside the script text would let the Faust source run shell commands.
+      - name: Compile
+        env:
+          DSP: ${{ inputs.dsp }}
+          ARCHIVE: ${{ inputs.archive }}
+          NAME: ${{ inputs.name }}
+          OPTIONS: ${{ inputs.options }}
+          ARCH: ${{ inputs.arch }}
+          PUREDATA_MACSDK: ${{ runner.temp }}/pd
+          OUT: ${{ runner.temp }}/out
+        run: scripts/build-puredata.sh
+
+      - name: Upload the result
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/out/${{ inputs.name }}-puredata.zip
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.name }}-log
+          path: ${{ runner.temp }}/out/build.log
+          retention-days: 7
+          if-no-files-found: ignore

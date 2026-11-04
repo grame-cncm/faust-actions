@@ -103,6 +103,24 @@ artifact holds `<name>/<name>.component` (AU), `<name>.vst3` and
 zip, as for `caqt` (above), and copy the plugins to
 `~/Library/Audio/Plug-Ins/Components` and `~/Library/Audio/Plug-Ins/VST3`.
 
+## Compile for Pure Data, SuperCollider and Csound
+
+```sh
+gh workflow run puredata.yml -f name=osc -f dsp="$(cat tests/osc.dsp)"
+gh workflow run supercollider.yml -f name=osc -f options=-noprefix -f dsp="$(cat tests/osc.dsp)"
+gh workflow run csound.yml -f name=osc -f dsp="$(cat tests/osc.dsp)"
+```
+
+Same inputs as `max.yml`, plus the version of the headers used: `pd`
+(a tag of pure-data/pure-data, default `0.56-5`), `sc` (a tag of
+supercollider/supercollider, default `Version-3.14.1`) or `csound` (a
+Csound release, default `6.18.1`, whose universal macOS installer
+provides the headers). The artifacts hold `<name>~.pd_darwin`;
+`<name>.scx` (plus `<name>_supernova.scx` with `-sn`) and the
+`<name>.sc` class file; or `<name>.dylib`. The `.pd` patch that
+`faust2pd` writes is not produced: `faust2pd` is not installed on the
+runner.
+
 ## How it works
 
 - `.github/actions/setup-faust` builds the Faust compiler from

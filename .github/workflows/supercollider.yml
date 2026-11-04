@@ -1,0 +1,92 @@
+name: SuperCollider UGen
+
+# One run compiles one Faust program with faust2supercollider and returns
+# the UGen (<name>.scx) and its class file (<name>.sc) as a zip artifact named <name>-supercollider.zip.
+run-name: supercollider ${{ inputs.name }} ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dsp:
+        description: Faust source code (or use archive)
+        default: ""
+        type: string
+      archive:
+        description: Instead of dsp, base64 of a tar.gz holding <name>.dsp and the files it imports, without directories
+        default: ""
+        type: string
+      name:
+        description: Program name, without .dsp
+        default: foo
+        type: string
+      options:
+        description: Extra faust2supercollider options
+        default: ""
+        type: string
+      arch:
+        description: Architecture of the result
+        default: universal
+        type: choice
+        options: [universal, arm64, x86_64]
+      sc:
+        description: SuperCollider version whose headers are used (a tag of supercollider/supercollider)
+        default: Version-3.14.1
+        type: string
+      tag:
+        description: Free text added to the run name, so a client can find its run
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  supercollider:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Faust
+        uses: ./.github/actions/setup-faust
+
+      # Only the include/ directory of the sources is fetched (sparse checkout).
+      - name: Get the SuperCollider headers
+        env:
+          SC_VERSION: ${{ inputs.sc }}
+        run: |
+          set -euo pipefail
+          [[ "$SC_VERSION" =~ ^Version-[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid SuperCollider version '$SC_VERSION'"; exit 1; }
+          git clone -q --depth 1 --branch "$SC_VERSION" --filter=blob:none --sparse https://github.com/supercollider/supercollider "$RUNNER_TEMP/sc"
+          git -C "$RUNNER_TEMP/sc" sparse-checkout set include
+          ls "$RUNNER_TEMP/sc/include"
+
+      # Inputs reach the script through the environment only: expanding them
+      # inside the script text would let the Faust source run shell commands.
+      - name: Compile
+        env:
+          DSP: ${{ inputs.dsp }}
+          ARCHIVE: ${{ inputs.archive }}
+          NAME: ${{ inputs.name }}
+          OPTIONS: ${{ inputs.options }}
+          ARCH: ${{ inputs.arch }}
+          SUPERCOLLIDER_HEADERS: ${{ runner.temp }}/sc/include
+          OUT: ${{ runner.temp }}/out
+        run: scripts/build-supercollider.sh
+
+      - name: Upload the result
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/out/${{ inputs.name }}-supercollider.zip
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.name }}-log
+          path: ${{ runner.temp }}/out/build.log
+          retention-days: 7
+          if-no-files-found: ignore

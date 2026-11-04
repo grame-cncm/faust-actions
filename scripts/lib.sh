@@ -174,6 +174,21 @@ check_bundle_archs() {
     echo "architectures: $EXPECTED_ARCHS in all $n Mach-O files of $bundle"
 }
 
+# thin_to_arch <file>: when ARCH is a single architecture, reduce a
+# universal Mach-O file to it and sign it again (ad hoc). For the scripts
+# that build both architectures without being asked (faust2puredata and
+# faust2supercollider on an arm machine).
+thin_to_arch() {
+    local f=$1 archs
+    [ "$ARCH" = universal ] && return 0
+    archs=$(lipo -archs "$f")
+    if [ "$archs" != "$ARCH" ] && [[ " $archs " == *" $ARCH "* ]]; then
+        lipo "$f" -thin "$ARCH" -output "$f.thin"
+        mv "$f.thin" "$f"
+        codesign --sign - --force "$f"
+    fi
+}
+
 # package <suffix>: zip $OUT/$NAME into $OUT/$NAME-<suffix>.zip
 package() {
     cd "$OUT"

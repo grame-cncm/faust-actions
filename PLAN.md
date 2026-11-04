@@ -558,6 +558,34 @@ what each one needs to move here.
 
 ### Easy: only public headers to fetch
 
+Implemented as `puredata.yml`, `supercollider.yml` and `csound.yml`
+(`plot` to do), with `build-<target>.sh` on top of `lib.sh`:
+
+- Pure Data: `m_pd.h` fetched from `raw.githubusercontent.com` at the tag
+  given by the `pd` input (default `0.56-5`), as `PUREDATA_MACSDK`;
+- SuperCollider: the `include/` directory of the sources, by a sparse
+  checkout at the tag given by `sc` (default `Version-3.14.1`), as
+  `SUPERCOLLIDER_HEADERS`; `faust2sc`, which writes the `.sc` class file,
+  is a Ruby script and needs the runner's `ruby`;
+- Csound: the `Headers` folder of `CsoundLib64.framework`, taken from the
+  official universal installer of the release given by `csound` (default
+  `6.18.1`: `hdiutil attach`, `pkgutil --expand-full`), cached; the
+  repository's `include/` would lack `float-version.h` and `version.h`,
+  which Csound generates at build time, and the `H/` headers that
+  `csoundCore.h` includes. `faust2csound` has no `-arch`: it appends its
+  flags to `CXXFLAGS` and compiles and links in one clang command, so
+  `CXXFLAGS="-I<headers> -arch x86_64 -arch arm64"` makes it universal;
+- `faust2puredata` and `faust2supercollider` (with `-universal`) build
+  both architectures on an arm machine; for `arch=arm64` or `x86_64`,
+  `thin_to_arch` (in `lib.sh`) extracts the requested one with
+  `lipo -thin` and signs the file again;
+- options refused: `-arch32`, `-arch64`, `-tosource` (Pure Data);
+  `-soundfile` (Homebrew's libsndfile), `-d`, `-dm` (write to
+  `/dev/tty`) for SuperCollider;
+- tested locally: the refusals and `thin_to_arch`; compiling against the
+  downloaded headers was refused by the local agent policy, so the first
+  builds are the GitHub runs.
+
 | target | script | needed on the runner | Intel + Apple Silicon |
 | :--- | :--- | :--- | :--- |
 | `puredata`, `puredata-poly` | `faust2puredata` (`-poly`) | `m_pd.h` from the Pure Data repository (`PUREDATA_MACSDK`); the external is linked with `-undefined suppress` | already: on an arm machine, so on `macos-15`, it builds both slices and merges them with `lipo` |
